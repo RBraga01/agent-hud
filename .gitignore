@@ -1,0 +1,9 @@
+.claude/worktrees/
+.agent-sync/
+raven-framework/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+agents.local.json
