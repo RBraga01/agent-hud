@@ -112,7 +112,7 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | Feeder | What it reads |
 |---|---|
 | `simulated` | Nothing. Invented items, so the app can be run and demonstrated with no accounts and no personal data. This is the default. |
-| `claude_hook` | State written by two small Claude Code hooks. The supported way to know whose turn it is. Needs a one-time install (below). |
+| `claude_hook` | State written by four small Claude Code hooks. Knows the difference between your turn, a failure, and Claude still doing background work. Needs a one-time install (below). |
 | `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
 | `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. |
 
@@ -124,26 +124,39 @@ AGENT_HUD_FEEDERS=claude_hook,simulated python -m stub_server.server
 
 ### Installing the Claude Code hooks
 
-`integrations/claude_code/` has two scripts. `agent_hud_stop.py` runs when Claude finishes a turn and records that the session is waiting on you; `agent_hud_prompt.py` runs when you reply and clears it. They write one small JSON file per session — project, state, timestamp — and **never read or store your prompt text**.
+`integrations/claude_code/` has four short scripts. Keep them together — they share `_hook_common.py`.
 
-Add to `~/.claude/settings.json` (use absolute paths):
+| Hook | Script | What it records |
+|---|---|---|
+| `UserPromptSubmit` | `agent_hud_prompt.py` | `working` — you are mid-conversation |
+| `Stop` | `agent_hud_stop.py` | `waiting` — your turn; or `background` if Claude left tasks or scheduled work running |
+| `StopFailure` | `agent_hud_stop_failure.py` | `error` — the turn ended in an API failure |
+| `SessionEnd` | `agent_hud_session_end.py` | removes the session's record |
+
+They write one small JSON file per session — project, state, timestamp — with a hashed filename, and **never read or store your prompt text or any error contents**.
+
+Add to `~/.claude/settings.json`, with the path to each script (absolute, and on Windows use `\\` or forward slashes in JSON, and `py` if `python` is not on PATH):
 
 ```json
 {
   "hooks": {
-    "Stop": [
-      { "hooks": [{ "type": "command",
-        "command": "python /abs/path/to/agent-hud/integrations/claude_code/agent_hud_stop.py" }] }
-    ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command",
-        "command": "python /abs/path/to/agent-hud/integrations/claude_code/agent_hud_prompt.py" }] }
+      { "hooks": [{ "type": "command", "command": "python /abs/path/agent-hud/integrations/claude_code/agent_hud_prompt.py" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "python /abs/path/agent-hud/integrations/claude_code/agent_hud_stop.py" }] }
+    ],
+    "StopFailure": [
+      { "hooks": [{ "type": "command", "command": "python /abs/path/agent-hud/integrations/claude_code/agent_hud_stop_failure.py" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "python /abs/path/agent-hud/integrations/claude_code/agent_hud_session_end.py" }] }
     ]
   }
 }
 ```
 
-Then `AGENT_HUD_FEEDERS=claude_hook`. State goes to `~/.agent-hud/claude/` by default; `AGENT_HUD_CLAUDE_STATE` overrides it (the hooks read the same variable).
+Then `AGENT_HUD_FEEDERS=claude_hook`. State goes to `~/.agent-hud/claude/` by default; `AGENT_HUD_CLAUDE_STATE` overrides it (the hooks and the feeder read the same variable). The `Stop` hook applies with no delay — it means Claude has finished.
 
 ### The `claude` feeder is the fallback
 
@@ -187,7 +200,7 @@ feeders/
   claude_hook.py        reads Claude Code hook state       no framework needed
   claude_sessions.py    reads Claude transcripts (fallback)no framework needed
 integrations/
-  claude_code/          the two Claude Code hook scripts
+  claude_code/          four Claude Code hook scripts + shared helper
 stub_server/
   server.py             asks the feeders on every request  no framework needed
   agents.json           edit this when using the file feeder
@@ -214,7 +227,7 @@ Where this is going, in the order it needs to happen.
 | **Done** | A quiet display | Nothing visible until something needs you; stare to see what |
 | **Done** | Honest failure | A calm display and a broken one never look alike |
 | **Done** | One request at a time | A slow gateway cannot walk the display backwards |
-| **Next** | Confirm the credential path | Ask Raven whether a deployed app gets `app_id` / `app_key` from the device, or must carry them in `main.py` |
+| **Blocked on Raven** | The credential path | Raven's public developer token and its runtime mechanism have not been released; internal testing adds credentials locally |
 | **Done** | A supported Claude signal | `claude_hook` feeder + two Claude Code hooks, replacing the transcript parser |
 | **Next** | More sources | Codex and GitHub feeders, and an event-shaped gateway |
 | **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |

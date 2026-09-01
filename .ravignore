@@ -18,6 +18,7 @@ tests/
 stub_server/
 feeders/
 docs/
+integrations/
 .github/
 .git/
 .venv/

@@ -1,94 +1,28 @@
 #!/usr/bin/env python3
 """Claude Code `Stop` hook for Agent HUD.
 
-Claude Code runs this when it finishes a turn. It records that the session
-is now waiting on you, in a small per-session file the `claude_hook` feeder
-reads.
+Runs when Claude finishes a turn. Records that the session is waiting on
+you — unless Claude left background tasks or scheduled work running, in
+which case it records "background" instead and the HUD stays quiet.
 
-Install by adding to `~/.claude/settings.json`:
+Never reads or stores prompt text. Always exits 0.
 
-    {
-      "hooks": {
-        "Stop": [
-          {"hooks": [{"type": "command",
-            "command": "python /abs/path/to/agent_hud_stop.py"}]}
-        ],
-        "UserPromptSubmit": [
-          {"hooks": [{"type": "command",
-            "command": "python /abs/path/to/agent_hud_prompt.py"}]}
-        ]
-      }
-    }
-
-Always exits 0. It must never interfere with Claude Code itself.
+Install: see README, "Installing the Claude Code hooks".
 """
 
 from __future__ import annotations
 
 import contextlib
-import json
-import os
 import sys
-import tempfile
-import time
-from pathlib import Path
 
-STATE = "waiting"
-
-
-def _pretty(folder: str) -> str:
-    """A readable project name from a path segment. Mirrors the feeder."""
-    import re
-
-    parts = [p for p in re.split(r"[-/\\]", folder) if p]
-    skip = {
-        "projects", "projectos", "proyectos", "projekte", "projets",
-        "code", "src", "repos", "repositories", "dev", "development",
-        "workspace", "work", "documents", "users", "home",
-    }
-    while parts and parts[0].lower() in skip:
-        parts.pop(0)
-    return " ".join(parts).strip() or "unnamed"
-
-
-def _state_dir() -> Path:
-    override = os.environ.get("AGENT_HUD_CLAUDE_STATE")
-    if override:
-        return Path(override)
-    return Path.home() / ".agent-hud" / "claude"
+from _hook_common import has_background_work, read_payload, write_record
 
 
 def main() -> None:
-    try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
+    payload = read_payload()
+    if payload is None:
         return
-    if not isinstance(data, dict):
-        return
-
-    session_id = str(data.get("session_id") or "").strip()
-    if not session_id:
-        return
-
-    cwd = data.get("cwd") or os.getcwd()
-    record = {
-        "session_id": session_id,
-        "project": _pretty(Path(cwd).name),
-        "state": STATE,
-        "at": time.time(),
-    }
-
-    try:
-        state_dir = _state_dir()
-        state_dir.mkdir(parents=True, exist_ok=True)
-        target = state_dir / f"{session_id}.json"
-        # Write-then-rename, so a reader never sees a half-written file.
-        fd, tmp = tempfile.mkstemp(dir=state_dir, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(record, fh)
-        os.replace(tmp, target)
-    except OSError:
-        return
+    write_record("background" if has_background_work(payload) else "waiting", payload)
 
 
 if __name__ == "__main__":

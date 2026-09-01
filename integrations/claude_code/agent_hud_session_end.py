@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Claude Code `UserPromptSubmit` hook for Agent HUD.
+"""Claude Code `SessionEnd` hook for Agent HUD.
 
-Runs when you send Claude a prompt. Marks the session "working" so it
-stops calling for your attention. The prompt text is never read.
+Runs when a Claude Code session closes. Deletes that session's record so
+a finished session does not linger as "your turn" until the staleness
+cutoff.
 
 Always exits 0.
 """
@@ -12,13 +13,13 @@ from __future__ import annotations
 import contextlib
 import sys
 
-from _hook_common import read_payload, write_record
+from _hook_common import read_payload, remove_record
 
 
 def main() -> None:
     payload = read_payload()
     if payload is not None:
-        write_record("working", payload)
+        remove_record(payload)
 
 
 if __name__ == "__main__":

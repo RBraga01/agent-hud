@@ -20,10 +20,13 @@ application credentials and a device, neither of which this project has yet.
   accounts; a reader for live Claude Code sessions; and a file reader for
   driving the display by hand.
 - The gateway asks its feeders on every request, so nothing is ever stale.
-- `claude_hook` feeder plus two Claude Code hooks (`Stop`, `UserPromptSubmit`)
-  in `integrations/claude_code/`. This is the supported way to tell whose
-  turn it is; the transcript-parsing `claude` feeder stays as a no-setup
-  fallback. The hook path never reads or stores prompt text.
+- `claude_hook` feeder plus four Claude Code hooks (`UserPromptSubmit`,
+  `Stop`, `StopFailure`, `SessionEnd`) in `integrations/claude_code/`. This
+  is the supported way to tell whose turn it is; the transcript-parsing
+  `claude` feeder stays as a no-setup fallback. It distinguishes your turn
+  from a failure from Claude still doing background work, applies no settle
+  delay, cleans up when a session ends, and never reads prompt text or
+  error contents.
 
 ### Fixed
 - A gateway answering with something that is not a list of items was

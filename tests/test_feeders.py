@@ -360,6 +360,7 @@ def test_a_short_transcript_is_still_read_completely(tmp_path):
 
 
 def test_dispatcher_runs_the_claude_hook_feeder(tmp_path):
+    import hashlib
     import json as _json
 
     from agent_hud.config import load_settings
@@ -367,9 +368,10 @@ def test_dispatcher_runs_the_claude_hook_feeder(tmp_path):
 
     state = tmp_path / "state"
     state.mkdir()
-    (state / "s1.json").write_text(
+    fname = hashlib.sha256(b"s1").hexdigest()[:16] + ".json"
+    (state / fname).write_text(
         _json.dumps(
-            {"session_id": "s1", "project": "Bookshop", "state": "waiting",
+            {"session_id": "s1", "project_raw": "bookshop", "state": "waiting",
              "at": time.time() - 300}
         ),
         encoding="utf-8",
@@ -382,7 +384,7 @@ def test_dispatcher_runs_the_claude_hook_feeder(tmp_path):
     items = collect(settings)
 
     assert len(items) == 1
-    assert items[0]["title"] == "Bookshop"
+    assert items[0]["title"] == "bookshop"
     assert items[0]["needs_you"] is True
 
 

@@ -1,15 +1,19 @@
 """Turn Claude Code hook state into items.
 
-A Claude Code ``Stop`` hook writes one small JSON file per session into a
-state directory when Claude finishes a turn; a ``UserPromptSubmit`` hook
-flips it back when you reply. This feeder reads that directory.
+Four small Claude Code hooks (in ``integrations/claude_code/``) write one
+JSON record per session into a state directory:
 
-This is the supported replacement for ``claude_sessions``, which infers
-the same thing from undocumented transcript files. Install the hooks
-(see ``integrations/claude_code/``) and set ``AGENT_HUD_FEEDERS=claude_hook``.
+    working     you are mid-conversation, or Claude is running
+    background  Claude stopped but left tasks or scheduled work going
+    waiting     Claude finished and it is your turn
+    error       the turn ended in an API failure
 
-No prompt text passes through this path at all — the hook records only
-the project, the state and a timestamp.
+This feeder reads that directory. It is the supported replacement for
+``claude_sessions``, which infers the same thing from undocumented
+transcript files. No prompt text passes through this path at all — the
+record is project, state and a timestamp.
+
+Install the hooks and set ``AGENT_HUD_FEEDERS=claude_hook``.
 """
 
 from __future__ import annotations
@@ -20,16 +24,29 @@ from pathlib import Path
 
 from ._claude_shared import DEFAULT_SKIP_WORDS, ago, pretty_project
 
-# Claude may still be settling after a turn; don't call for attention at once.
-SETTLE_SECONDS = 45
-
-# Older than this and a session is abandoned, not waiting on you.
+# Older than this and a session is abandoned, not waiting on you. There is
+# no settle delay: an official Stop event means Claude has finished.
 STALE_SECONDS = 72 * 3600
 
-_REQUIRED = ("session_id", "project", "state", "at")
+_REQUIRED = ("session_id", "project_raw", "state", "at")
+
+# state -> (needs_you, how to describe it)
+_NEEDS_YOU = {"waiting": True, "error": True, "working": False, "background": False}
 
 
-def _read_record(path: Path, now: float) -> dict | None:
+def _detail(state: str, age: float) -> str:
+    if state == "error":
+        return "failed"
+    if state == "background":
+        return "working in background"
+    if state == "waiting":
+        return f"your turn - {ago(age)}"
+    return "working"
+
+
+def _read_record(
+    path: Path, now: float, skip_words: tuple[str, ...]
+) -> dict | None:
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -37,22 +54,22 @@ def _read_record(path: Path, now: float) -> dict | None:
     if not isinstance(rec, dict) or any(k not in rec for k in _REQUIRED):
         return None
 
+    state = rec["state"]
+    if state not in _NEEDS_YOU:
+        return None
+
     try:
         age = now - float(rec["at"])
     except (TypeError, ValueError):
         return None
-    if age > STALE_SECONDS or age < 0:
+    if age < 0 or age > STALE_SECONDS:
         return None
 
-    waiting = rec["state"] == "waiting" and age > SETTLE_SECONDS
-    detail = ("your turn" if waiting else "working") + (
-        f" - {ago(age)}" if waiting else ""
-    )
     return {
         "id": f"claude-{str(rec['session_id'])[:8]}",
-        "title": str(rec["project"]) or "unnamed",
-        "detail": detail,
-        "needs_you": waiting,
+        "title": pretty_project(str(rec["project_raw"]), skip_words) or "unnamed",
+        "detail": _detail(state, age),
+        "needs_you": _NEEDS_YOU[state],
     }
 
 
@@ -68,8 +85,7 @@ def collect(
         state_dir: Directory the hooks write into. Passed in rather than
             found, so tests never touch a real home directory.
         now: Current time in seconds. Defaults to the real clock.
-        skip_words: Unused here; accepted so the two Claude feeders share
-            a signature. Titles are already prettified by the hook.
+        skip_words: Generic folder names to drop when making a title.
     """
     moment = time.time() if now is None else now
     folder = Path(state_dir)
@@ -78,7 +94,7 @@ def collect(
 
     items = []
     for path in sorted(folder.glob("*.json")):
-        item = _read_record(path, moment)
+        item = _read_record(path, moment, skip_words)
         if item is not None:
             items.append(item)
 
@@ -86,6 +102,4 @@ def collect(
     return items
 
 
-# The hooks themselves want pretty_project; re-export so a single import
-# from feeders.claude_hook covers writing and reading.
-__all__ = ["SETTLE_SECONDS", "STALE_SECONDS", "collect", "pretty_project"]
+__all__ = ["DEFAULT_SKIP_WORDS", "STALE_SECONDS", "collect"]
