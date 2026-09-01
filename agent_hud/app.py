@@ -25,7 +25,14 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
-from raven_framework import Container, RavenApp, Routine, TextBox
+from raven_framework import (
+    Button,
+    Container,
+    RavenApp,
+    Routine,
+    TextBox,
+    VerticalContainer,
+)
 from raven_framework.components.icon import Icon
 from raven_framework.helpers.async_runner import AsyncRunner
 from raven_framework.helpers.themes import RAVEN_CORE as theme
@@ -76,12 +83,17 @@ COUNT_RING_SIZE = 132
 COUNT_TEXT_SIZE = 45
 COUNT_DWELL_MS = 1200
 
-ROW_HEIGHT = 104
-ROW_GAP = 14
-OVERFLOW_WIDTH = 170
-OVERFLOW_HEIGHT = 52
-ROW_PAD_X = 20
-ROW_PAD_Y = 12
+# Margins follow ScrollableListCard, the closest example to this screen.
+CARD_MARGIN_X = 25
+CARD_MARGIN_TOP = 35
+CARD_MARGIN_BOTTOM = 35
+CARD_SPACING = 10
+
+PANEL_TITLE = "Needs you"
+ROW_WIDTH = FRAME_SIZE - CARD_MARGIN_X * 2
+ROW_HEIGHT = 96
+ROW_TEXT_INSET = 24
+ROW_PAD_TOP = 14
 
 IDLE_DOT_SIZE = 16
 OFFLINE_DOT_SIZE = 20
@@ -89,10 +101,10 @@ OFFLINE_DOT_SIZE = 20
 # The panel sits inside the frame and is pushed right. The display covers
 # the right eye, so the guidance is to assume asymmetry rather than centre
 # things for visual balance.
-PANEL_WIDTH = FRAME_SIZE - FRAME_PAD * 2
-PANEL_X = FRAME_INSET + FRAME_PAD
-PANEL_Y = FRAME_INSET + FRAME_PAD
-PANEL_HEIGHT = ROW_HEIGHT * 2 + ROW_GAP + 52
+PANEL_WIDTH = ROW_WIDTH
+PANEL_HEIGHT = FRAME_SIZE - CARD_MARGIN_TOP - CARD_MARGIN_BOTTOM
+PANEL_X = FRAME_INSET + CARD_MARGIN_X
+PANEL_Y = FRAME_INSET + CARD_MARGIN_TOP
 
 # Six lines maximum on screen. Each row costs two, leaving room for the
 # overflow line.
@@ -104,7 +116,9 @@ GAZE_TICK_MS = 100
 # where every Raven example puts it. It lives on the outer widget rather
 # than the app container, so redrawing the app never disturbs it.
 CLOCK_RIGHT_EDGE = 612
-CLOCK_Y = 30
+# Vertically centred on the home button, which the framework places with
+# its circle spanning roughly y=15 to y=95.
+CLOCK_Y = 42
 CLOCK_WIDTH = 120
 CLOCK_TICK_MS = 10_000
 
@@ -321,35 +335,71 @@ class AgentHud(RavenApp):
             self._draw_idle_dot()
             return
 
-        frame = self._draw_frame()
+        # Two different layouts, so two different hosts. The panel is a
+        # stacked card, exactly as the examples build one. The resting count
+        # is placed by hand, which a VerticalContainer cannot do: its add()
+        # only stacks and takes no coordinates.
         if self._panel.is_open:
-            self._draw_panel(frame)
+            self._draw_panel(self._card())
         else:
-            self._draw_count(frame)
+            self._draw_count(self._frame())
 
         if not self._online:
-            self._draw_offline_dot(frame)
+            self._draw_offline_dot()
 
-    def _draw_frame(self) -> Container:
-        """The outer stroke that holds the app together.
+    def _card(self) -> VerticalContainer:
+        """The card the panel sits in.
 
-        Raven's own examples put everything inside one rounded outline. On
-        an additive display it is the cheapest legibility there is: a bright
-        thin edge survives almost any background, and it tells the eye where
-        the app stops and the world starts.
+        This is the composition Raven's own examples use: a VerticalContainer
+        with is_main_container set, which pulls the theme's background and its
+        gradient border, plus generous inner margins. Building the frame by
+        hand instead — which is what this did first — reproduces the shape but
+        not the system.
         """
-        frame = Container(
+        frame = VerticalContainer(
             width=FRAME_SIZE,
             height=FRAME_SIZE,
-            border_width=STROKE_WIDTH,
-            corner_radius=FRAME_RADIUS,
-            background_color="transparent",
+            is_main_container=True,
+            inner_margin=(
+                CARD_MARGIN_X,
+                CARD_MARGIN_TOP,
+                CARD_MARGIN_X,
+                CARD_MARGIN_BOTTOM,
+            ),
+            spacing=CARD_SPACING,
         )
         self.app.add(frame, FRAME_INSET, FRAME_INSET)
         return frame
 
+    def _frame(self) -> Container:
+        """The same card, with a plain layer inside that accepts coordinates.
+
+        Container and VerticalContainer differ in one default that matters:
+        VerticalContainer sets border_color from the theme, Container leaves
+        it transparent, so a bare Container draws no visible edge whatever
+        width it is given. Rather than fight that, the card is always the
+        VerticalContainer the examples use, and this transparent layer inside
+        it takes the children that need placing by coordinate.
+        """
+        card = VerticalContainer(
+            width=FRAME_SIZE,
+            height=FRAME_SIZE,
+            is_main_container=True,
+            inner_margin=0,
+            spacing=0,
+        )
+        self.app.add(card, FRAME_INSET, FRAME_INSET)
+
+        inner = Container(
+            width=FRAME_SIZE,
+            height=FRAME_SIZE,
+            background_color="transparent",
+        )
+        card.add(inner)
+        return inner
+
     def _draw_count(self, frame: Container) -> None:
-        """The resting count: a number inside a ring, low and to the right."""
+        """The resting count: a number in a ring, low and to the right."""
         ring = Container(
             width=COUNT_RING_SIZE,
             height=COUNT_RING_SIZE,
@@ -361,9 +411,9 @@ class AgentHud(RavenApp):
         ring_y = FRAME_SIZE // 2 - COUNT_RING_SIZE // 2
         frame.add(ring, ring_x, ring_y)
 
-        # The Icon carries the digit and the dwell arc; the ring around it
-        # is the container above, because a clickable Icon draws no outline
-        # of its own until the dwell starts.
+        # The Icon carries the digit and the dwell arc; the ring around it is
+        # the container above, because a clickable Icon draws no outline of
+        # its own until the dwell starts.
         self._count_icon = Icon(
             size=COUNT_ICON_SIZE,
             center_text=self.count_text,
@@ -389,27 +439,27 @@ class AgentHud(RavenApp):
         )
 
     def _draw_panel(self, frame: Container) -> None:
-        """One outlined row per item, the way Raven's own list screens read."""
-        rows = self._waiting()[:MAX_PANEL_ITEMS]
-        height = len(rows) * ROW_HEIGHT + max(0, len(rows) - 1) * ROW_GAP
-        if self.overflow_count > 0:
-            height += ROW_GAP + OVERFLOW_HEIGHT
-
-        # Centred rather than top-aligned: it keeps the group near the middle
-        # of the field instead of stranding it above a large empty area.
-        y = max(FRAME_PAD, (FRAME_SIZE - height) // 2)
-
-        for item in rows:
-            frame.add(_row(item), FRAME_PAD, y)
-            y += ROW_HEIGHT + ROW_GAP
+        """A titled list, composed the way the Art Studio example composes one."""
+        frame.add(
+            TextBox(
+                PANEL_TITLE,
+                font_size=theme.fonts.title.size,
+                font_weight=TITLE_WEIGHT,
+                width=ROW_WIDTH,
+            )
+        )
+        for item in self._waiting()[:MAX_PANEL_ITEMS]:
+            frame.add(_row(item))
 
         if self.overflow_count > 0:
-            # Enclosed like everything else. Left bare it sat directly on
-            # whatever was behind it and vanished against a bright window.
             frame.add(
-                _overflow_pill(self.overflow_count),
-                FRAME_SIZE - FRAME_PAD - OVERFLOW_WIDTH,
-                y,
+                TextBox(
+                    f"+{self.overflow_count} more",
+                    font_type="body",
+                    font_weight=BODY_WEIGHT,
+                    alignment="right",
+                    width=ROW_WIDTH,
+                )
             )
 
     def _draw_idle_dot(self) -> None:
@@ -419,13 +469,17 @@ class AgentHud(RavenApp):
             APP_SIZE // 2,
         )
 
-    def _draw_offline_dot(self, frame: Container) -> None:
+    def _draw_offline_dot(self) -> None:
         """A separate marker so 'nothing waiting' and 'cannot reach the
-        gateway' never look like the same thing."""
-        frame.add(
+        gateway' never look like the same thing.
+
+        Placed on the app rather than inside the card, so it lands in the
+        same spot whichever of the two layouts is showing.
+        """
+        self.app.add(
             _dot(OFFLINE_DOT_SIZE, OFFLINE_COLOR),
-            FRAME_SIZE - OFFLINE_DOT_SIZE - FRAME_PAD,
-            FRAME_SIZE - OFFLINE_DOT_SIZE - FRAME_PAD,
+            APP_SIZE - OFFLINE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_X,
+            APP_SIZE - OFFLINE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_BOTTOM,
         )
 
     # -- timers ---------------------------------------------------------
@@ -495,61 +549,53 @@ def _dot(size: int, color: str) -> Icon:
     )
 
 
-def _overflow_pill(count: int) -> Container:
-    """How many waiting items would not fit, enclosed so it stays readable."""
-    pill = Container(
-        width=OVERFLOW_WIDTH,
-        height=OVERFLOW_HEIGHT,
-        border_width=ROW_STROKE_WIDTH,
-        corner_radius=OVERFLOW_HEIGHT // 2,
-        background_color="transparent",
-    )
-    pill.add(
-        TextBox(
-            f"+{count} more",
-            font_type="body",
-            font_weight=BODY_WEIGHT,
-            alignment="center",
-            width=OVERFLOW_WIDTH - ROW_STROKE_WIDTH * 2,
-        ),
-        ROW_STROKE_WIDTH,
-        10,
-    )
-    return pill
+def _row(item: Item) -> Button:
+    """One item as a Button, which is what the examples use for list rows.
 
+    A Button rather than a plain outlined container: it carries the theme's
+    outline, corner radius and dwell fill, so the row behaves and reads like
+    every other Raven row rather than merely resembling one.
 
-def _row(item: Item) -> Container:
-    """One item as an outlined pill: heavy title, lighter detail beneath."""
-    row = Container(
-        width=PANEL_WIDTH,
-        height=ROW_HEIGHT,
-        border_width=ROW_STROKE_WIDTH,
-        corner_radius=CORNER_RADIUS,
-        background_color="transparent",
+    No action icon, and clicking is off. The chevron in Raven's list screens
+    promises that the row opens something; these rows are for reading, so
+    showing one would promise something that is not there.
+    """
+    # Button stretches its content widget to fill itself, and a
+    # VerticalContainer stacks from its own top edge — so without an inner
+    # margin the first line lands on the border. The top margin centres the
+    # two lines within the row.
+    inner = VerticalContainer(
+        width=ROW_WIDTH,
+        inner_margin=(ROW_TEXT_INSET, ROW_PAD_TOP, ROW_TEXT_INSET, 0),
+        spacing=2,
     )
-    inner_width = PANEL_WIDTH - ROW_PAD_X * 2
-    row.add(
+    inner.add(
         TextBox(
             item.title,
             font_type="headline",
             font_weight=TITLE_WEIGHT,
-            width=inner_width,
-        ),
-        ROW_PAD_X,
-        ROW_PAD_Y,
+            width=ROW_WIDTH - ROW_TEXT_INSET * 2,
+        )
     )
     if item.detail:
-        row.add(
+        inner.add(
             TextBox(
                 item.detail,
                 font_type="body",
                 font_weight=BODY_WEIGHT,
-                width=inner_width,
-            ),
-            ROW_PAD_X,
-            ROW_PAD_Y + 44,
+                width=ROW_WIDTH - ROW_TEXT_INSET * 2,
+            )
         )
-    return row
+
+    return Button(
+        width=ROW_WIDTH,
+        height=ROW_HEIGHT,
+        content_widget=inner,
+        enable_click=False,
+        # No rest-state shrink: that animation belongs to a button you can
+        # press, and it makes the embedded text size unpredictable.
+        scale_by=0.0,
+    )
 
 
 def _default_gaze() -> tuple[int, int] | None:
