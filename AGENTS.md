@@ -23,6 +23,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
+| `feeders/codex.py` | no | reads Codex CLI sessions from `~/.codex` (undocumented format) |
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
 | `agent_hud/app.py` | **yes** | placing widgets, and nothing else |

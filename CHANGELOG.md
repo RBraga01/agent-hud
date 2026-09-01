@@ -20,6 +20,10 @@ application credentials and a device, neither of which this project has yet.
   accounts; a reader for live Claude Code sessions; and a file reader for
   driving the display by hand.
 - The gateway asks its feeders on every request, so nothing is ever stale.
+- `codex` feeder — recent Codex CLI sessions from `~/.codex`, using the
+  session index for titles and the session log's tail for whose turn it
+  is. Reads event types only, never message bodies. `feeders/codex.py` is
+  the template for other agent CLIs (Cursor, OpenCode, Copilot).
 - `claude_hook` feeder plus four Claude Code hooks (`UserPromptSubmit`,
   `Stop`, `StopFailure`, `SessionEnd`) in `integrations/claude_code/`. This
   is the supported way to tell whose turn it is; the transcript-parsing

@@ -26,12 +26,13 @@ _FEEDERS_VAR = "AGENT_HUD_FEEDERS"
 _SHOW_PROMPTS_VAR = "AGENT_HUD_SHOW_PROMPTS"
 _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
 _CLAUDE_STATE_VAR = "AGENT_HUD_CLAUDE_STATE"
+_CODEX_DIR_VAR = "AGENT_HUD_CODEX_DIR"
 _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
 DEFAULT_FEEDERS = ("simulated",)
-KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "file")
+KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "codex", "file")
 
 _TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 
@@ -56,6 +57,8 @@ class Settings:
     claude_state: Path = field(
         default_factory=lambda: Path.home() / ".agent-hud" / "claude"
     )
+    # The Codex CLI directory, for the codex feeder.
+    codex_dir: Path = field(default_factory=lambda: Path.home() / ".codex")
     # Extra generic folder names to drop when naming a project. Empty means
     # use the feeder's own list, which already covers the common ones.
     skip_path_words: tuple[str, ...] = ()
@@ -138,6 +141,13 @@ def _read_claude_state(env: Mapping[str, str]) -> Path:
     return Path(raw.strip())
 
 
+def _read_codex_dir(env: Mapping[str, str]) -> Path:
+    raw = env.get(_CODEX_DIR_VAR)
+    if raw is None or not raw.strip():
+        return Path.home() / ".codex"
+    return Path(raw.strip())
+
+
 def _read_skip_path_words(env: Mapping[str, str]) -> tuple[str, ...]:
     raw = env.get(_SKIP_PATH_WORDS_VAR, "")
     return tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -157,5 +167,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         show_prompts=_read_show_prompts(source),
         claude_projects=_read_claude_projects(source),
         claude_state=_read_claude_state(source),
+        codex_dir=_read_codex_dir(source),
         skip_path_words=_read_skip_path_words(source),
     )

@@ -82,10 +82,11 @@ All settings are optional and read from the environment. Nothing is written into
 |---|---|---|
 | `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/items` | Where to ask for the list |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
-| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `file` |
+| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
 | `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where the `claude` feeder looks for sessions |
 | `AGENT_HUD_CLAUDE_STATE` | `~/.agent-hud/claude` | Where the `claude_hook` feeder and hooks read/write state |
+| `AGENT_HUD_CODEX_DIR` | `~/.codex` | The Codex CLI directory, for the `codex` feeder |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
 
@@ -114,6 +115,7 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | `simulated` | Nothing. Invented items, so the app can be run and demonstrated with no accounts and no personal data. This is the default. |
 | `claude_hook` | State written by four small Claude Code hooks. Knows the difference between your turn, a failure, and Claude still doing background work. Needs a one-time install (below). |
 | `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
+| `codex` | Your recent Codex CLI sessions, from `~/.codex`. Reads the session index for a title and the session log's tail for whose turn it is. Undocumented format, like `claude`. |
 | `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. |
 
 Choose them in order — the first one listed appears first on screen:
@@ -162,7 +164,11 @@ Then `AGENT_HUD_FEEDERS=claude_hook`. State goes to `~/.agent-hud/claude/` by de
 
 It reads the transcript files with no setup, which is useful for a first try, but nothing promises those files keep their shape. Prefer `claude_hook` for anything ongoing.
 
-**Prompt text is off by default** for the `claude` feeder — a row reads `your turn - 13 h`. `AGENT_HUD_SHOW_PROMPTS=1` shows the last thing you asked instead. That is your own writing on a display, so you switch it on deliberately. The `claude_hook` feeder never has prompt text to show.
+**Prompt text is off by default** for the `claude` feeder — a row reads `your turn - 13 h`. `AGENT_HUD_SHOW_PROMPTS=1` shows the last thing you asked instead. That is your own writing on a display, so you switch it on deliberately. The `claude_hook` and `codex` feeders never have prompt text to show.
+
+### Other agent CLIs
+
+Cursor, OpenCode and the GitHub Copilot CLI follow the same shape: a per-session log on disk, and a "last event decides whose turn it is" read. `feeders/codex.py` is the template. They are not implemented yet because verifying each on-disk format needs the tool installed — see the roadmap.
 
 ## What the gateway sends
 
@@ -199,6 +205,7 @@ feeders/
   simulated.py          invented items, no accounts needed no framework needed
   claude_hook.py        reads Claude Code hook state       no framework needed
   claude_sessions.py    reads Claude transcripts (fallback)no framework needed
+  codex.py              reads Codex CLI sessions           no framework needed
 integrations/
   claude_code/          four Claude Code hook scripts + shared helper
 stub_server/
