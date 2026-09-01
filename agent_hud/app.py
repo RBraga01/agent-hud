@@ -75,8 +75,6 @@ CORNER_RADIUS = theme.borders.corner_radius
 
 FRAME_INSET = 6
 FRAME_SIZE = APP_SIZE - FRAME_INSET * 2
-FRAME_RADIUS = 28
-FRAME_PAD = 26
 
 COUNT_ICON_SIZE = 108
 COUNT_RING_SIZE = 132
@@ -90,7 +88,19 @@ CARD_MARGIN_BOTTOM = 35
 CARD_SPACING = 10
 
 PANEL_TITLE = "Needs you"
-ROW_WIDTH = FRAME_SIZE - CARD_MARGIN_X * 2
+CARD_WIDTH = FRAME_SIZE
+ROW_WIDTH = CARD_WIDTH - CARD_MARGIN_X * 2
+TITLE_HEIGHT = 46
+OVERFLOW_LINE_HEIGHT = 34
+
+# Cards are only as tall as what is in them. A full-height card around two
+# rows leaves a large empty box hanging in the middle of your vision, which
+# is exactly what Raven's compact card examples avoid.
+COUNT_CARD_WIDTH = COUNT_RING_SIZE + CARD_MARGIN_X * 2 + 36
+# Generous: a VerticalContainer lays out with a box layout, so if the card
+# is only exactly tall enough the layout compresses the ring to fit the
+# text's real height and the circle comes out clipped.
+COUNT_LABEL_HEIGHT = 42
 ROW_HEIGHT = 96
 ROW_TEXT_INSET = 24
 ROW_PAD_TOP = 14
@@ -101,10 +111,6 @@ OFFLINE_DOT_SIZE = 20
 # The panel sits inside the frame and is pushed right. The display covers
 # the right eye, so the guidance is to assume asymmetry rather than centre
 # things for visual balance.
-PANEL_WIDTH = ROW_WIDTH
-PANEL_HEIGHT = FRAME_SIZE - CARD_MARGIN_TOP - CARD_MARGIN_BOTTOM
-PANEL_X = FRAME_INSET + CARD_MARGIN_X
-PANEL_Y = FRAME_INSET + CARD_MARGIN_TOP
 
 # Six lines maximum on screen. Each row costs two, leaving room for the
 # overflow line.
@@ -249,14 +255,19 @@ class AgentHud(RavenApp):
         return max(0, len(self._waiting()) - MAX_PANEL_ITEMS)
 
     def panel_region(self) -> Rect:
-        """Where the panel sits on the display. Empty when closed."""
+        """Where the panel sits on the display. Empty when closed.
+
+        Computed from the same numbers that place the card, so the region the
+        gaze is tested against is the region actually on screen.
+        """
         if not self._panel.is_open:
             return Rect(x=0, y=0, width=0, height=0)
+        height = self._panel_height()
         return Rect(
-            x=APP_OFFSET_X + PANEL_X,
-            y=APP_OFFSET_Y + PANEL_Y,
-            width=PANEL_WIDTH,
-            height=PANEL_HEIGHT,
+            x=APP_OFFSET_X + FRAME_INSET,
+            y=APP_OFFSET_Y + (APP_SIZE - height) // 2,
+            width=CARD_WIDTH,
+            height=height,
         )
 
     # -- behaviour ------------------------------------------------------
@@ -340,25 +351,23 @@ class AgentHud(RavenApp):
         # is placed by hand, which a VerticalContainer cannot do: its add()
         # only stacks and takes no coordinates.
         if self._panel.is_open:
-            self._draw_panel(self._card())
+            self._draw_panel()
         else:
-            self._draw_count(self._frame())
+            self._draw_count()
 
         if not self._online:
             self._draw_offline_dot()
 
-    def _card(self) -> VerticalContainer:
-        """The card the panel sits in.
+    def _card(self, width: int, height: int) -> VerticalContainer:
+        """A card sized to its contents.
 
         This is the composition Raven's own examples use: a VerticalContainer
-        with is_main_container set, which pulls the theme's background and its
-        gradient border, plus generous inner margins. Building the frame by
-        hand instead — which is what this did first — reproduces the shape but
-        not the system.
+        with is_main_container set, which pulls the theme's background and
+        gradient border, plus the margins ScrollableListCard uses.
         """
-        frame = VerticalContainer(
-            width=FRAME_SIZE,
-            height=FRAME_SIZE,
+        card = VerticalContainer(
+            width=width,
+            height=height,
             is_main_container=True,
             inner_margin=(
                 CARD_MARGIN_X,
@@ -368,38 +377,27 @@ class AgentHud(RavenApp):
             ),
             spacing=CARD_SPACING,
         )
-        self.app.add(frame, FRAME_INSET, FRAME_INSET)
-        return frame
+        return card
 
-    def _frame(self) -> Container:
-        """The same card, with a plain layer inside that accepts coordinates.
+    def _panel_height(self) -> int:
+        rows = len(self._waiting()[:MAX_PANEL_ITEMS])
+        height = CARD_MARGIN_TOP + TITLE_HEIGHT + CARD_SPACING
+        height += rows * (ROW_HEIGHT + CARD_SPACING)
+        if self.overflow_count > 0:
+            height += OVERFLOW_LINE_HEIGHT + CARD_SPACING
+        return height + CARD_MARGIN_BOTTOM
 
-        Container and VerticalContainer differ in one default that matters:
-        VerticalContainer sets border_color from the theme, Container leaves
-        it transparent, so a bare Container draws no visible edge whatever
-        width it is given. Rather than fight that, the card is always the
-        VerticalContainer the examples use, and this transparent layer inside
-        it takes the children that need placing by coordinate.
-        """
-        card = VerticalContainer(
-            width=FRAME_SIZE,
-            height=FRAME_SIZE,
-            is_main_container=True,
-            inner_margin=0,
-            spacing=0,
+    def _draw_count(self) -> None:
+        """The resting count: a number in a ring, in a card of its own."""
+        height = (
+            CARD_MARGIN_TOP
+            + COUNT_RING_SIZE
+            + CARD_SPACING
+            + COUNT_LABEL_HEIGHT
+            + CARD_MARGIN_BOTTOM
         )
-        self.app.add(card, FRAME_INSET, FRAME_INSET)
+        card = self._card(COUNT_CARD_WIDTH, height)
 
-        inner = Container(
-            width=FRAME_SIZE,
-            height=FRAME_SIZE,
-            background_color="transparent",
-        )
-        card.add(inner)
-        return inner
-
-    def _draw_count(self, frame: Container) -> None:
-        """The resting count: a number in a ring, low and to the right."""
         ring = Container(
             width=COUNT_RING_SIZE,
             height=COUNT_RING_SIZE,
@@ -407,13 +405,9 @@ class AgentHud(RavenApp):
             corner_radius=COUNT_RING_SIZE // 2,
             background_color="transparent",
         )
-        ring_x = FRAME_SIZE - COUNT_RING_SIZE - FRAME_PAD
-        ring_y = FRAME_SIZE // 2 - COUNT_RING_SIZE // 2
-        frame.add(ring, ring_x, ring_y)
-
         # The Icon carries the digit and the dwell arc; the ring around it is
-        # the container above, because a clickable Icon draws no outline of
-        # its own until the dwell starts.
+        # the container, because a clickable Icon draws no outline of its own
+        # until the dwell starts.
         self._count_icon = Icon(
             size=COUNT_ICON_SIZE,
             center_text=self.count_text,
@@ -426,20 +420,30 @@ class AgentHud(RavenApp):
         offset = (COUNT_RING_SIZE - COUNT_ICON_SIZE) // 2
         ring.add(self._count_icon, offset, offset)
 
-        frame.add(
+        card.add(ring)
+        card.add(
             TextBox(
                 "need you",
                 font_type="body",
                 alignment="center",
                 font_weight=BODY_WEIGHT,
                 width=COUNT_RING_SIZE,
-            ),
-            ring_x,
-            ring_y + COUNT_RING_SIZE + 10,
+            )
         )
 
-    def _draw_panel(self, frame: Container) -> None:
+        # Right periphery, vertically centred: the display sits over the right
+        # eye, so the guidance is to assume asymmetry.
+        self.app.add(
+            card,
+            APP_SIZE - COUNT_CARD_WIDTH - EDGE_MARGIN,
+            (APP_SIZE - height) // 2,
+        )
+
+    def _draw_panel(self) -> None:
         """A titled list, composed the way the Art Studio example composes one."""
+        height = self._panel_height()
+        frame = self._card(CARD_WIDTH, height)
+        self.app.add(frame, FRAME_INSET, (APP_SIZE - height) // 2)
         frame.add(
             TextBox(
                 PANEL_TITLE,
