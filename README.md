@@ -239,7 +239,7 @@ python main.py deploy
 
 `.ravignore` restricts the uploaded package to `main.py` and `agent_hud/` — the framework, tests, feeders and documents are all kept out.
 
-**One thing here is unverified.** The Framework passes `app_id` / `app_key` into the app at runtime too, not only at upload — its peripheral and button handling authenticate with them. Whether a deployed app receives its credentials from the device environment, or is expected to carry them in `main.py`, is not visible in the public Framework source. Reading them from the environment is the right choice regardless (a real key must never be committed), but on-device behaviour has not been tested and is a question for Raven — see the roadmap.
+**On credentials at runtime.** The Framework uses `app_id` / `app_key` for peripheral authentication as well as for upload. Raven's current internal testing checks the app out and adds internal credentials locally; the public developer token and its runtime mechanism have not been released yet. Agent HUD keeps credentials out of source control and reads them from the environment. On-device behaviour with a real token is untested — see the roadmap.
 
 ## Licence
 
