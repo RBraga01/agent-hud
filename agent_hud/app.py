@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime
 
 from raven_framework import Container, RavenApp, Routine, TextBox
 from raven_framework.components.icon import Icon
 from raven_framework.helpers.async_runner import AsyncRunner
+from raven_framework.helpers.themes import RAVEN_CORE as theme
 
 from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_items
 from .config import Settings, load_settings
@@ -54,10 +56,15 @@ EDGE_MARGIN = 24
 # The framework's Icon draws its ring only mid-dwell or when disabled, so
 # a resting count has no outline of its own. The ring here is a bordered
 # container placed behind it.
-WHITE = "#FFFFFF"
-STROKE_WIDTH = 3
+# Values come from the framework theme rather than being invented here, so
+# the app sits inside Raven's own visual system: a white to Moon Silver
+# diagonal gradient on every border, 3px wide, 20px corners. Overriding the
+# border with flat white — which is what this did at first — switches that
+# gradient off and makes the app look subtly foreign next to Raven's own.
+WHITE = theme.basic_palette.white
+STROKE_WIDTH = theme.borders.width
 ROW_STROKE_WIDTH = 2
-CORNER_RADIUS = 20
+CORNER_RADIUS = theme.borders.corner_radius
 
 FRAME_INSET = 6
 FRAME_SIZE = APP_SIZE - FRAME_INSET * 2
@@ -93,14 +100,19 @@ MAX_PANEL_ITEMS = 2
 
 GAZE_TICK_MS = 100
 
-# Pure white, because nothing dimmer survives a bright outdoor scene: the
-# display cannot darken the world behind it, so a mid-grey marker simply
-# is not there. Small and unobtrusive is achieved with size, not dimness.
-IDLE_COLOR = "#FFFFFF"
-# Fully saturated amber, not a muted one. A dulled colour is dulled by
-# having less light in it, and less light is exactly what this display
-# cannot afford. Hue carries the meaning; brightness carries the message.
-OFFLINE_COLOR = "#FFC24D"
+# The clock sits above the frame and just left of the home button, which is
+# where every Raven example puts it. It lives on the outer widget rather
+# than the app container, so redrawing the app never disturbs it.
+CLOCK_RIGHT_EDGE = 612
+CLOCK_Y = 30
+CLOCK_WIDTH = 120
+CLOCK_TICK_MS = 10_000
+
+# Both markers take palette values from the theme. Yellow is Raven's own
+# warning colour, and it is fully saturated, which is what this display
+# needs — a dulled colour is one with less light in it.
+IDLE_COLOR = theme.basic_palette.white
+OFFLINE_COLOR = theme.basic_palette.yellow
 
 # Checked against the simulator's waveguide blend in all three lighting
 # presets. At night regular weight is fine, but in daylight the display
@@ -149,14 +161,46 @@ class AgentHud(RavenApp):
         self._pending: FetchResult | None = None
         self._poll_routine: Routine | None = None
         self._gaze_routine: Routine | None = None
+        self._clock_routine: Routine | None = None
         self._rendered: tuple | None = None
         self._count_icon: Icon | None = None
 
+        self._build_clock(running=auto_start)
         self._render()
 
         if auto_start:
             self.refresh_now()
             self._start_timers()
+
+    # -- chrome ---------------------------------------------------------
+
+    def _build_clock(self, *, running: bool) -> None:
+        """The time, where Raven's own apps put it.
+
+        Added to the outer widget, not the app container, so it survives
+        every redraw and never has to be rebuilt.
+        """
+        self._clock_label = TextBox(
+            _now_hhmm(),
+            font_type="small",
+            alignment="right",
+            width=CLOCK_WIDTH,
+            # Bold, because at 18px this is the least luminous thing on
+            # screen and fades first in daylight. It is chrome, not
+            # information, so fading is acceptable — but not by default.
+            font_weight=TITLE_WEIGHT,
+        )
+        self.add(self._clock_label, CLOCK_RIGHT_EDGE - CLOCK_WIDTH, CLOCK_Y)
+        if running:
+            self._clock_routine = Routine(
+                interval_ms=CLOCK_TICK_MS,
+                invoke=self._update_clock,
+                mode="repeat",
+                parent=self,
+            )
+
+    def _update_clock(self) -> None:
+        self._clock_label.set_text(_now_hhmm())
 
     # -- what the tests read --------------------------------------------
 
@@ -298,7 +342,6 @@ class AgentHud(RavenApp):
             width=FRAME_SIZE,
             height=FRAME_SIZE,
             border_width=STROKE_WIDTH,
-            border_color=WHITE,
             corner_radius=FRAME_RADIUS,
             background_color="transparent",
         )
@@ -311,7 +354,6 @@ class AgentHud(RavenApp):
             width=COUNT_RING_SIZE,
             height=COUNT_RING_SIZE,
             border_width=STROKE_WIDTH,
-            border_color=WHITE,
             corner_radius=COUNT_RING_SIZE // 2,
             background_color="transparent",
         )
@@ -425,6 +467,11 @@ class AgentHud(RavenApp):
         self.tick_gaze(gaze_position=self._gaze())
 
 
+def _now_hhmm() -> str:
+    """Wall-clock time, 24 hour, as Raven's examples show it."""
+    return datetime.now().strftime("%H:%M")
+
+
 def _dot(size: int, color: str) -> Icon:
     """A small solid marker.
 
@@ -454,7 +501,6 @@ def _overflow_pill(count: int) -> Container:
         width=OVERFLOW_WIDTH,
         height=OVERFLOW_HEIGHT,
         border_width=ROW_STROKE_WIDTH,
-        border_color=WHITE,
         corner_radius=OVERFLOW_HEIGHT // 2,
         background_color="transparent",
     )
@@ -478,7 +524,6 @@ def _row(item: Item) -> Container:
         width=PANEL_WIDTH,
         height=ROW_HEIGHT,
         border_width=ROW_STROKE_WIDTH,
-        border_color=WHITE,
         corner_radius=CORNER_RADIUS,
         background_color="transparent",
     )
