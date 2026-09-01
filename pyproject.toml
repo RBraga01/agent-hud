@@ -17,6 +17,12 @@ dependencies = ["requests>=2.31"]
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
 
+# Declared explicitly. With two top-level packages in a flat layout,
+# setuptools refuses to guess and the install fails, which a local editable
+# install can hide, but a clean one will not.
+[tool.setuptools]
+packages = ["agent_hud", "stub_server"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
