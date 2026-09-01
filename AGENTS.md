@@ -107,4 +107,5 @@ From the design spec, and not open for reinterpretation:
 
 - **Never commit the Raven Framework.** It is proprietary and gitignored. Do not add any part of it.
 - **Never commit credentials.** No API keys, no `app_id`, no `app_key`, no machine names or internal addresses.
+- **Test data is invented, never observed.** Fixtures must not contain anything seen on a real machine: no real project names, folder layouts, prompts or session identifiers. This has already gone wrong once. Reading real data while developing a feeder is exactly how it happens — you see plausible values on screen and reach for them when writing the test an hour later. Make names up, and make them obviously made up.
 - The framework, the virtual environment, the `logs/` directory it creates, and all local tooling are gitignored. Check `git status` before committing.

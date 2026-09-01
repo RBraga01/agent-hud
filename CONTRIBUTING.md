@@ -8,6 +8,8 @@ Two things about this project are not negotiable, because both protect someone o
 
 **No credentials, ever.** No API keys, no `app_id`, no `app_key`, no machine names, no internal addresses. Settings come from the environment. `.env` is ignored and must stay that way.
 
+**Invent your test data.** Fixtures must never contain anything seen on a real machine — no real project names, folder layouts, prompts or session identifiers. The feeders read personal files, so it is easy to copy plausible-looking values straight out of a debugging session and into a test. Make them up, and make them obviously made up.
+
 ## The test
 
 Before proposing a feature, ask:
