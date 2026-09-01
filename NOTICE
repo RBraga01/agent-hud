@@ -1,0 +1,24 @@
+agent-hud — Licence Notice
+==========================
+
+This repository contains one project, and depends on another with a very
+different licence. They must not be confused.
+
+agent-hud (this repository)
+---------------------------
+- Scope: all source, tests, configuration and documentation here.
+- Licence: MIT — see LICENSE.
+
+Raven Framework (a separate dependency)
+---------------------------------------
+- Scope: the Raven Framework library, installed by hand from
+  https://github.com/RavenResonance/raven-framework
+- Licence: Proprietary. Source available, not open source.
+- Restrictions: viewing its source grants no right to use, modify or
+  redistribute it without written permission from Raven Resonance Inc.
+
+No part of the Raven Framework is included in this repository, and none may
+be added to it. It is listed in .gitignore for that reason.
+
+This project is not affiliated with, endorsed by, or connected to
+Raven Resonance Inc.

@@ -1,0 +1,66 @@
+name: checks
+
+# The Raven Framework is deliberately NOT installed here. It is proprietary and
+# its licence grants no right to use it, so it must never be pulled into public
+# automation. The screen tests skip without it; everything else runs, which is
+# why the logic lives outside the screen in the first place.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the project supports. 3.12 is what the glasses run.
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q --cov --cov-report=term
+
+      - name: Check the framework was not committed
+        run: |
+          if [ -e raven-framework ]; then
+            echo "The Raven Framework is proprietary and must never be committed."
+            exit 1
+          fi
+          if git ls-files | grep -qi 'raven_framework/'; then
+            echo "Framework source found in the repository. Remove it."
+            exit 1
+          fi
+          echo "Clean."
+
+      - name: Check no secrets were committed
+        run: |
+          if git ls-files | grep -qE '^\.env$'; then
+            echo ".env must not be committed."
+            exit 1
+          fi
+          if git grep -nIE '(sk-[A-Za-z0-9]{20,}|app_key\s*=\s*"[^"]+")' -- \
+             ':!*.md' ':!.github/*' > /dev/null; then
+            echo "Something that looks like a credential is committed."
+            exit 1
+          fi
+          echo "Clean."

@@ -1,0 +1,10 @@
+# Development tools. Install with: pip install -e ".[dev]"
+# This file exists for tools that do not read pyproject.toml.
+#
+# The Raven Framework is deliberately absent. It is proprietary, its licence
+# grants no right to use it, and it must never be installed automatically.
+# Install it by hand — see the README.
+pytest>=8.0
+pytest-cov>=5.0
+ruff>=0.6
+requests>=2.31
