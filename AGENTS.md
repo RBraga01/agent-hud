@@ -20,6 +20,8 @@ So every decision worth testing lives in a module that does not import the frame
 | `agent_hud/config.py` | no | settings from the environment |
 | `agent_hud/client.py` | no | fetching from the gateway |
 | `agent_hud/interaction.py` | no | when the detail panel is showing |
+| `feeders/simulated.py` | no | invented items, no accounts needed |
+| `feeders/claude_sessions.py` | no | reads live Claude Code sessions |
 | `stub_server/server.py` | no | the development gateway |
 | `agent_hud/app.py` | **yes** | placing widgets, and nothing else |
 
@@ -78,7 +80,8 @@ Do not invent values. Take them from `raven_framework.helpers.themes.RAVEN_CORE`
 From the design spec, and not open for reinterpretation:
 
 - No acting on items from the glasses. Reading only. Approving things from a display driven by eye tracking is a much bigger decision about safety.
-- No tool-specific knowledge in the app. It draws a list of items; the gateway knows about GitHub and the rest.
+- No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `agent_hud/`.
+- No reading of anyone's personal data by default. `simulated` is the default feeder for that reason, and the Claude reader keeps prompt text off unless it is asked for.
 - No third-party Python packages in the glasses app beyond what the framework already bundles. How extra packages get installed onto the device is undocumented.
 
 ## Repository rules

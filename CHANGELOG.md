@@ -14,6 +14,11 @@ glasses until Raven issues credentials and opens their upload service.
 - A stub gateway that serves a file you can hand-edit while testing.
 - Screen composed from the Raven Framework's own card and button components,
   using the theme's values rather than invented ones.
+- Feeders, which are the parts that know about particular tools. The app
+  knows about none of them. Invented data by default, so it runs with no
+  accounts; a reader for live Claude Code sessions; and a file reader for
+  driving the display by hand.
+- The gateway asks its feeders on every request, so nothing is ever stale.
 
 ### Known limits
 - Staring can only be tested with a mouse. Real eye tracking is accurate to
@@ -21,3 +26,5 @@ glasses until Raven issues credentials and opens their upload service.
 - Text washes out over a bright sky. The display can only add light, and text
   is already at full white, so there is no headroom left.
 - Voice is not built yet. It needs its own design first.
+- The Claude reader depends on an undocumented file format and may stop
+  working without warning. A Stop hook is the supported replacement.

@@ -1,9 +1,7 @@
-"""Tests for the stub server.
+"""Tests for the stub gateway.
 
-The stub stands in for the real gateway. It reads a file you hand-edit
-and serves it, so editing the file is how we drive the display during
-development. It must re-read on every request, or edits would not show
-up without a restart.
+It asks its provider for the current list on every request, so whatever the
+feeders return is what the glasses see, with nothing cached in between.
 """
 
 import json
@@ -14,93 +12,117 @@ import requests
 
 from stub_server.server import ITEMS_PATH, create_server
 
-SAMPLE = {
-    "items": [
-        {"id": "a", "title": "One", "detail": "first", "needs_you": True},
-        {"id": "b", "title": "Two", "detail": "second", "needs_you": False},
-    ]
-}
+SAMPLE = [
+    {"id": "a", "title": "One", "detail": "first", "needs_you": True},
+    {"id": "b", "title": "Two", "detail": "second", "needs_you": False},
+]
+
+
+def serve(provider):
+    """Start the gateway on a free port. Returns the base URL and a stopper."""
+    server = create_server(provider, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+
+    def stop():
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    return f"http://127.0.0.1:{port}", stop
 
 
 @pytest.fixture
-def running_server(tmp_path):
-    """Start the stub on a free port, serving a file the test controls."""
-    data_file = tmp_path / "agents.json"
-    data_file.write_text(json.dumps(SAMPLE), encoding="utf-8")
-
-    server = create_server(data_path=data_file, port=0)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    port = server.server_address[1]
-    yield f"http://127.0.0.1:{port}", data_file
-
-    server.shutdown()
-    server.server_close()
-    thread.join(timeout=5)
+def fixed_server():
+    base, stop = serve(lambda: list(SAMPLE))
+    yield base
+    stop()
 
 
-def test_serves_the_file_contents_as_json(running_server):
-    base_url, _ = running_server
-
-    response = requests.get(f"{base_url}{ITEMS_PATH}", timeout=5)
+def test_serves_what_the_provider_returns(fixed_server):
+    response = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5)
 
     assert response.status_code == 200
-    assert response.json() == SAMPLE
+    assert response.json() == {"items": SAMPLE}
 
 
-def test_says_it_is_json(running_server):
-    base_url, _ = running_server
-
-    response = requests.get(f"{base_url}{ITEMS_PATH}", timeout=5)
+def test_says_it_is_json(fixed_server):
+    response = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5)
 
     assert response.headers["Content-Type"].startswith("application/json")
 
 
-def test_picks_up_edits_without_a_restart(running_server):
-    base_url, data_file = running_server
-    edited = {"items": [{"id": "c", "title": "Three", "detail": "", "needs_you": True}]}
+def test_asks_again_on_every_request(fixed_server=None):
+    # Nothing is cached: a second request must see a changed list.
+    state = {"n": 0}
 
-    data_file.write_text(json.dumps(edited), encoding="utf-8")
-    response = requests.get(f"{base_url}{ITEMS_PATH}", timeout=5)
+    def provider():
+        state["n"] += 1
+        return [
+            {
+                "id": "x",
+                "title": "Counter",
+                "detail": str(state["n"]),
+                "needs_you": True,
+            }
+        ]
 
-    assert response.json() == edited
+    base, stop = serve(provider)
+    try:
+        first = requests.get(f"{base}{ITEMS_PATH}", timeout=5).json()
+        second = requests.get(f"{base}{ITEMS_PATH}", timeout=5).json()
+    finally:
+        stop()
+
+    assert first["items"][0]["detail"] == "1"
+    assert second["items"][0]["detail"] == "2"
 
 
-def test_returns_an_error_when_the_file_is_missing(running_server):
-    base_url, data_file = running_server
+def test_a_broken_feeder_does_not_take_the_gateway_down():
+    def provider():
+        raise RuntimeError("the feeder fell over")
 
-    data_file.unlink()
-    response = requests.get(f"{base_url}{ITEMS_PATH}", timeout=5)
+    base, stop = serve(provider)
+    try:
+        response = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+        # And it is still answering afterwards.
+        again = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+    finally:
+        stop()
 
     assert response.status_code == 500
+    assert again.status_code == 500
 
 
-def test_returns_an_error_when_the_file_is_not_valid_json(running_server):
-    base_url, data_file = running_server
+def test_an_empty_list_is_a_normal_answer():
+    base, stop = serve(list)
+    try:
+        response = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+    finally:
+        stop()
 
-    data_file.write_text("{ this is not json", encoding="utf-8")
-    response = requests.get(f"{base_url}{ITEMS_PATH}", timeout=5)
-
-    assert response.status_code == 500
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
 
 
-def test_unknown_paths_are_not_found(running_server):
-    base_url, _ = running_server
-
-    response = requests.get(f"{base_url}/something-else", timeout=5)
+def test_unknown_paths_are_not_found(fixed_server):
+    response = requests.get(f"{fixed_server}/something-else", timeout=5)
 
     assert response.status_code == 404
 
 
-def test_binds_only_to_the_loopback_address(tmp_path):
-    # The stub must never be reachable from the network. It serves whatever
-    # is in a local file with no authentication of any kind.
-    data_file = tmp_path / "agents.json"
-    data_file.write_text(json.dumps(SAMPLE), encoding="utf-8")
-
-    server = create_server(data_path=data_file, port=0)
+def test_binds_only_to_the_loopback_address():
+    # It serves whatever the feeders return with no authentication at all,
+    # so it must never be reachable from a network.
+    server = create_server(list, port=0)
     try:
         assert server.server_address[0] == "127.0.0.1"
     finally:
         server.server_close()
+
+
+def test_the_response_is_valid_json_the_client_can_parse(fixed_server):
+    raw = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5).text
+
+    assert json.loads(raw)["items"][0]["title"] == "One"

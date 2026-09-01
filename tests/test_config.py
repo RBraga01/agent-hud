@@ -84,3 +84,53 @@ def test_reads_the_real_environment_when_none_is_given(monkeypatch):
     settings = load_settings()
 
     assert settings.gateway_url == "https://from-real-env/items"
+
+
+# --- feeder settings --------------------------------------------------
+
+
+def test_defaults_to_invented_data_only():
+    # The safe default: no personal data, no accounts, works for anyone.
+    settings = load_settings(env={})
+
+    assert settings.feeders == ("simulated",)
+    assert settings.show_prompts is False
+
+
+def test_feeders_can_be_chosen_and_ordered():
+    settings = load_settings(env={"AGENT_HUD_FEEDERS": "claude, simulated"})
+
+    assert settings.feeders == ("claude", "simulated")
+
+
+def test_rejects_a_feeder_it_does_not_know():
+    with pytest.raises(ValueError, match="AGENT_HUD_FEEDERS"):
+        load_settings(env={"AGENT_HUD_FEEDERS": "claude,telepathy"})
+
+
+def test_rejects_an_empty_feeder_list():
+    with pytest.raises(ValueError, match="AGENT_HUD_FEEDERS"):
+        load_settings(env={"AGENT_HUD_FEEDERS": "  "})
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+def test_prompt_text_can_be_switched_on(value):
+    assert load_settings(env={"AGENT_HUD_SHOW_PROMPTS": value}).show_prompts is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", ""])
+def test_prompt_text_stays_off_for_anything_else(value):
+    assert load_settings(env={"AGENT_HUD_SHOW_PROMPTS": value}).show_prompts is False
+
+
+def test_the_claude_folder_can_be_pointed_somewhere_else():
+    settings = load_settings(env={"AGENT_HUD_CLAUDE_PROJECTS": "/tmp/sessions"})
+
+    assert str(settings.claude_projects).replace("\\", "/").endswith("/tmp/sessions")
+
+
+def test_the_claude_folder_defaults_into_the_home_directory():
+    settings = load_settings(env={})
+
+    parts = settings.claude_projects.parts
+    assert parts[-2:] == (".claude", "projects")

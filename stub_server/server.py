@@ -1,13 +1,13 @@
 """A stand-in for the real agent gateway.
 
-Reads a JSON file and serves it over HTTP. Edit the file and the glasses
-pick up the change on their next request, which is how the display is
-driven during development.
+Asks the configured feeders for the current list on every request, so what
+the glasses show is never stale and there is only one thing to run.
 
-Standard library only, so it runs anywhere with nothing installed.
+Which feeders it uses comes from the environment. The default is invented
+data, which needs no accounts and reveals nothing personal. See the README.
 
-Bound to the loopback address on purpose. It serves whatever is in the
-file with no authentication, so it must never be reachable from a
+Bound to the loopback address on purpose. It serves whatever the feeders
+return with no authentication at all, so it must never be reachable from a
 network.
 """
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -37,16 +38,12 @@ class _ItemsHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            raw = self.server.data_path.read_text(encoding="utf-8")
-            payload = json.loads(raw)
-        except FileNotFoundError:
-            self._respond(500, {"error": "items file not found"})
-            return
-        except (json.JSONDecodeError, OSError) as exc:
-            self._respond(500, {"error": f"items file unreadable: {exc}"})
+            items = self.server.provider()
+        except Exception as exc:  # a broken feeder must not take the gateway down
+            self._respond(500, {"error": f"feeder failed: {exc}"})
             return
 
-        self._respond(200, payload)
+        self._respond(200, {"items": items})
 
     def _respond(self, status: int, payload: object) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -61,29 +58,44 @@ class _ItemsHandler(BaseHTTPRequestHandler):
 
 
 class _ItemsServer(ThreadingHTTPServer):
-    """A server that knows which file to serve."""
+    """A server that knows where to get its items."""
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], data_path: Path) -> None:
-        self.data_path = data_path
+    def __init__(
+        self, address: tuple[str, int], provider: Callable[[], list]
+    ) -> None:
+        self.provider = provider
         super().__init__(address, _ItemsHandler)
 
 
 def create_server(
-    data_path: Path | str = DEFAULT_DATA_PATH, port: int = DEFAULT_PORT
+    provider: Callable[[], list], port: int = DEFAULT_PORT
 ) -> _ItemsServer:
-    """Build a server bound to loopback. Pass port=0 to get a free port."""
-    return _ItemsServer((LOOPBACK_HOST, port), Path(data_path))
+    """Build a server bound to loopback.
+
+    Args:
+        provider: Called on every request; returns the current list.
+        port: Pass 0 to be given a free one.
+    """
+    return _ItemsServer((LOOPBACK_HOST, port), provider)
 
 
 def main() -> None:
     """Run the stub until interrupted."""
+    from agent_hud.config import load_settings
+    from feeders import collect
+
+    settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
-    server = create_server(port=port)
+    server = create_server(
+        lambda: collect(settings, file_path=DEFAULT_DATA_PATH), port=port
+    )
     host, bound_port = server.server_address[:2]
     print(f"Stub gateway on http://{host}:{bound_port}{ITEMS_PATH}")
-    print(f"Serving {server.data_path} — edit it and the glasses follow.")
+    print(f"Feeders: {', '.join(settings.feeders)}")
+    if "file" in settings.feeders:
+        print(f"Editing {DEFAULT_DATA_PATH} changes what the glasses show.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

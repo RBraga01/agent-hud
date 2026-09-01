@@ -21,13 +21,13 @@ dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
 # setuptools refuses to guess and the install fails, which a local editable
 # install can hide, but a clean one will not.
 [tool.setuptools]
-packages = ["agent_hud", "stub_server"]
+packages = ["agent_hud", "feeders", "stub_server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["agent_hud", "stub_server"]
+source = ["agent_hud", "feeders", "stub_server"]
 # app.py needs the Raven framework, which is proprietary and is never
 # installed in continuous integration, so its tests are skipped there and
 # counting it would make the number meaningless. The screen is verified by

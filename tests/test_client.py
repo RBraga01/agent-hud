@@ -8,7 +8,6 @@ These tests run real servers rather than mocking the network, so the
 thing under test is actually exercised.
 """
 
-import json
 import threading
 import time
 from dataclasses import FrozenInstanceError
@@ -38,16 +37,21 @@ def _serve(handler_class):
 
 
 @pytest.fixture
-def stub_url(tmp_path):
-    data_file = tmp_path / "agents.json"
-    data_file.write_text(json.dumps(SAMPLE), encoding="utf-8")
+def stub_url():
+    """The real gateway, serving a list the test can change between calls."""
+    state = {"items": list(SAMPLE["items"]), "fail": False}
 
-    server = create_server(data_path=data_file, port=0)
+    def provider():
+        if state["fail"]:
+            raise RuntimeError("feeder down")
+        return state["items"]
+
+    server = create_server(provider, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     port = server.server_address[1]
 
-    yield f"http://127.0.0.1:{port}{ITEMS_PATH}", data_file
+    yield f"http://127.0.0.1:{port}{ITEMS_PATH}", state
 
     server.shutdown()
     server.server_close()
@@ -74,8 +78,8 @@ def test_reports_failure_when_nothing_is_listening():
 
 
 def test_reports_failure_when_the_server_errors(stub_url):
-    url, data_file = stub_url
-    data_file.unlink()
+    url, state = stub_url
+    state["fail"] = True
 
     result = fetch_items(url)
 
@@ -134,18 +138,11 @@ def test_reports_failure_when_the_server_is_too_slow():
 def test_a_valid_response_with_malformed_entries_still_succeeds(stub_url):
     # A broken entry is the gateway's problem, not a network failure.
     # The good entries must still reach the display.
-    url, data_file = stub_url
-    data_file.write_text(
-        json.dumps(
-            {
-                "items": [
-                    SAMPLE["items"][0],
-                    {"id": "broken", "title": "No detail", "needs_you": True},
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
+    url, state = stub_url
+    state["items"] = [
+        SAMPLE["items"][0],
+        {"id": "broken", "title": "No detail", "needs_you": True},
+    ]
 
     result = fetch_items(url)
 
@@ -154,8 +151,8 @@ def test_a_valid_response_with_malformed_entries_still_succeeds(stub_url):
 
 
 def test_an_empty_but_valid_response_succeeds(stub_url):
-    url, data_file = stub_url
-    data_file.write_text(json.dumps({"items": []}), encoding="utf-8")
+    url, state = stub_url
+    state["items"] = []
 
     result = fetch_items(url)
 
