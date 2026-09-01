@@ -134,3 +134,11 @@ def test_the_claude_folder_defaults_into_the_home_directory():
 
     parts = settings.claude_projects.parts
     assert parts[-2:] == (".claude", "projects")
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "infinity", "1e400"])
+def test_rejects_a_poll_interval_that_is_not_a_finite_number(value):
+    # float("nan") and float("inf") both slip past a plain "> 0" check, and
+    # then break when converted to integer milliseconds for the timer.
+    with pytest.raises(ValueError, match="AGENT_HUD_POLL_SECONDS"):
+        load_settings(env={"AGENT_HUD_POLL_SECONDS": value})

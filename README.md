@@ -41,12 +41,14 @@ Activate it: `source .venv/bin/activate` on macOS and Linux, `.venv\Scripts\acti
 
 **2. Get the Raven Framework**
 
-It is not a dependency of this project and is never bundled with it. Clone it inside this folder, where it is already ignored by git:
+Agent HUD is MIT licensed. It depends on the Raven Framework, which is **separate proprietary software** — its source is public, but that does not by itself grant permission to use it. If you are authorized by Raven Resonance to use the Framework, install it following Raven's current developer instructions. Typically:
 
 ```bash
 git clone https://github.com/RavenResonance/raven-framework
 pip install -e ./raven-framework
 ```
+
+It is not a dependency of this project and is never bundled with it. Cloned inside this folder it is already ignored by git, and `.ravignore` keeps it out of any deployment package.
 
 **3. Install the development tools**
 
@@ -74,7 +76,7 @@ Now edit `stub_server/agents.json` and watch the glasses follow within a few sec
 
 ## Settings
 
-Both are optional and read from the environment. Nothing is written into the source.
+All settings are optional and read from the environment. Nothing is written into the source.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -83,8 +85,23 @@ Both are optional and read from the environment. Nothing is written into the sou
 | `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
 | `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where to look for Claude sessions |
+| `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 
-Copy `.env.example` if you want a starting point. A bad value stops the app at startup with a clear message rather than leaving you with a display that quietly does nothing.
+They are read straight from the environment. Set them before running:
+
+```bash
+# macOS / Linux
+export AGENT_HUD_FEEDERS=claude,simulated
+python main.py
+
+# Windows PowerShell
+$env:AGENT_HUD_FEEDERS = "claude,simulated"
+python main.py
+```
+
+`.env.example` is a reference for what exists — it is **not loaded automatically**. There is no `dotenv` dependency. Copy the values you want into your shell, or wrap `main.py` in a script that exports them.
+
+A bad value stops the app at startup with a clear message rather than leaving you with a display that quietly does nothing.
 
 ## Where the items come from
 
@@ -172,15 +189,23 @@ Where this is going, in the order it needs to happen.
 | **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
 | **Later** | Acting, carefully | Approving things by eye is a much bigger decision about safety than reading is. It comes last, on purpose, and only once reading has proved itself. |
 
-**What is not built.** The gateway is a development server: no authentication, loopback only. It is fine for the simulator and unfit for anything else. Making it reachable over a network is a real piece of work, not a change of address. And nothing has run on real hardware, because Raven has not opened deployment.
+**What is not built.** The gateway is a development server: no authentication, loopback only. It is fine for the simulator and unfit for anything else. Making it reachable over a network is a real piece of work, not a change of address.
+
+**What has not been tested.** Agent HUD has run in Raven's simulator, not on physical Prism hardware. Eye-tracking accuracy, blink detection, the physical button and real-device performance are all unverified. The automated checks do not touch the on-glasses screen code at all — they cannot, because the Framework is not installed there.
 
 ## Deploying to glasses
 
-Not possible yet. It needs an app ID and key that Raven issues, and their upload service to be open. Neither is available. When it is:
+The Raven Framework supports deployment. Deploying Agent HUD needs Raven-issued application credentials and access to Prism hardware, neither of which this project has yet. The Framework also requires the exact Python version its devices run (`3.12.12` at the time of writing) and checks the version string before it will build a package.
+
+Credentials are read from the environment, so deploying never means editing tracked source:
 
 ```bash
+export RAVEN_APP_ID=...
+export RAVEN_APP_KEY=...
 python main.py deploy
 ```
+
+`.ravignore` restricts the uploaded package to `main.py` and `agent_hud/` — the framework, tests, feeders and documents are all kept out.
 
 ## Licence
 

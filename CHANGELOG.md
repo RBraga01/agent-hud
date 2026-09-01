@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-First working version. Runs in Raven's simulator; cannot be deployed to real
-glasses until Raven issues credentials and opens their upload service.
+First working version. Validated in Raven's simulator, not on physical Prism
+hardware. The Raven Framework supports deployment; doing so needs Raven-issued
+application credentials and a device, neither of which this project has yet.
 
 ### Added
 - Reads a list of items from a gateway and shows how many need attention.
@@ -41,5 +42,9 @@ glasses until Raven issues credentials and opens their upload service.
 - Text washes out over a bright sky. The display can only add light, and text
   is already at full white, so there is no headroom left.
 - Voice is not built yet. It needs its own design first.
+- Not run on real hardware. Eye-tracking accuracy, blink detection and the
+  physical button are all unverified.
+- The gateway is a loopback-only development server with no authentication.
+  A network-reachable gateway is a separate build.
 - The Claude reader depends on an undocumented file format and may stop
   working without warning. A Stop hook is the supported replacement.

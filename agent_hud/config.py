@@ -11,6 +11,7 @@ that silently shows nothing.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -84,9 +85,12 @@ def _read_poll_seconds(env: Mapping[str, str]) -> float:
             f"{_POLL_SECONDS_VAR} must be a number, got {raw!r}"
         ) from exc
 
-    if seconds <= 0:
+    # isfinite rejects nan and inf, which both pass a plain "> 0" check and
+    # then fail when turned into an integer millisecond count for the timer.
+    if not math.isfinite(seconds) or seconds <= 0:
         raise ValueError(
-            f"{_POLL_SECONDS_VAR} must be greater than zero, got {raw!r}"
+            f"{_POLL_SECONDS_VAR} must be a finite number greater than zero, "
+            f"got {raw!r}"
         )
     return seconds
 

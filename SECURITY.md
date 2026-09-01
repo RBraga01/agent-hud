@@ -34,7 +34,9 @@ If you find any part of it in this repository, that is a licence problem rather 
 
 - No telemetry. The app talks to the gateway you configure and nothing else.
 - No stored data. Nothing is written to disk except the log file the framework itself creates, which is ignored by git.
-- No credentials in the app. It has none, and does not need any.
+- No credentials in the app. Deployment credentials, when there are any, are
+  read from the environment (`RAVEN_APP_ID`, `RAVEN_APP_KEY`) and never written
+  into tracked source.
 
 ## Supported versions
 
@@ -42,4 +44,5 @@ If you find any part of it in this repository, that is a licence problem rather 
 |---------|-----------|
 | Unreleased | Yes |
 
-This is a prototype and cannot yet be deployed to real glasses.
+This is a prototype, validated in the simulator only. Deployment to Prism
+hardware needs Raven-issued credentials and a device.

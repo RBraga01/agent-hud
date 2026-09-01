@@ -10,12 +10,11 @@ TEAM.md
 .metrics/
 .sessions/
 
-# Raven Framework — proprietary, installed separately.
-# Its licence grants no right to redistribute. Never commit it here.
+# Raven Framework — a separate proprietary dependency, installed by hand.
+# See the README. Never commit it here.
 raven-framework/
 
-# Internal planning. These describe strategy, not just this app, and are
-# kept outside the repository (see a local folder).
+# Internal planning notes, kept outside the repository
 docs/specs/
 docs/plans/
 

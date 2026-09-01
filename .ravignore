@@ -1,0 +1,64 @@
+# What NOT to package when running `python main.py deploy`.
+#
+# Raven's deploy tool walks this whole directory and copies every .py plus
+# assets (.png .json .md .txt .gif ...). It does NOT read .gitignore. Its
+# own guard only skips a folder literally named "raven_framework" with an
+# underscore, so the hyphenated clone below would otherwise be packaged and
+# uploaded — redistributing proprietary code, which its licence forbids.
+#
+# Matching is plain path prefixes, not globs. List real paths, not patterns.
+#
+# The deployable payload is exactly:  main.py  and  agent_hud/
+
+# The proprietary framework. Never upload this.
+raven-framework/
+
+# Development tooling, none of it needed on the glasses.
+tests/
+stub_server/
+feeders/
+docs/
+.github/
+.git/
+.venv/
+venv/
+
+# Local agent tooling (also gitignored).
+.claude/
+.agent-sync/
+skills/
+hooks/
+scripts/
+templates/
+.metrics/
+.sessions/
+INIT.md
+TEAM.md
+logs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+agent_hud.egg-info/
+__pycache__/
+
+# Secrets and local config.
+.env
+.env.local
+.env.example
+agents.local.json
+
+# Repository documents, not application files.
+README.md
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md
+SECURITY.md
+CHANGELOG.md
+NOTICE
+LICENSE
+.gitignore
+.ravignore
+pyproject.toml
+requirements-dev.txt

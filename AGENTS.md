@@ -66,6 +66,7 @@ All of these cost real time. None are in Raven's documentation.
 | `is_main_container=True` | Sets the background and border width but **not** the corner radius, despite the docstring. |
 | `Button(content_widget=…)` | Stretches the content to fill the button. A `VerticalContainer` inside stacks from its own top edge, so without an inner margin the first line lands on the border. |
 | `Container.clear()` | Calls `deleteLater()` on every child. A widget kept between redraws becomes a dangling pointer. Build fresh every time. |
+| `python main.py deploy` | Raven's packager walks the whole directory and copies every `.py` plus `.json`/`.md`/`.gif`/... It ignores `.gitignore`. Its own guard only skips a folder literally named `raven_framework` (underscore), not the `raven-framework` clone. `.ravignore` is what keeps the framework, tests and docs out of the upload — keep it current. |
 | `AsyncRunner.run(fn, on_complete=…)` | The callback takes **no arguments** and `fn`'s return value is discarded. The documentation says otherwise and following it raises. Carry results on the instance. |
 | A clickable `Icon` | Draws no outline until the dwell starts. It needs a bordered container behind it to have any visible shape at rest. |
 | Sizing a `VerticalContainer` to exactly fit | The box layout compresses children to make room for text's real height. Leave slack or things get clipped. |
