@@ -19,9 +19,11 @@ switching it on puts it on a display and into a file on disk. See
 from __future__ import annotations
 
 import json
-import re
 import time
 from pathlib import Path
+
+from ._claude_shared import DEFAULT_SKIP_WORDS, pretty_project
+from ._claude_shared import ago as _ago
 
 # Claude may still be mid-reply; do not call for attention immediately.
 SETTLE_SECONDS = 45
@@ -38,48 +40,13 @@ MAX_DETAIL = 30
 # whole file would be megabytes of pointless work every few seconds.
 TAIL_BYTES = 64 * 1024
 
-# Folder names that describe where code is kept rather than which project
-# it is. Dropped from the front of a name so the project itself is what
-# shows. Several languages, because none of this should assume one
-# person's machine. Add your own with AGENT_HUD_SKIP_PATH_WORDS.
-DEFAULT_SKIP_WORDS = (
-    "projects", "projectos", "proyectos", "projekte", "projets",
-    "code", "src", "repos", "repositories", "dev", "development",
-    "workspace", "work", "documents", "users", "home",
-)
-
-_DRIVE = re.compile(r"^([a-zA-Z])--")
-
-
-def pretty_project(
-    folder: str, skip_words: tuple[str, ...] = DEFAULT_SKIP_WORDS
-) -> str:
-    """Turn an encoded folder name into something worth reading.
-
-    ``d--code-api-core`` becomes ``api core``. The leading drive and
-    any generic container folders are dropped; what is left is the project.
-    """
-    drive = _DRIVE.match(folder)
-    letter = drive.group(1).upper() if drive else ""
-    rest = folder[drive.end():] if drive else folder
-
-    lower = {w.lower() for w in skip_words}
-    parts = [p for p in rest.split("-") if p]
-    while parts and parts[0].lower() in lower:
-        parts.pop(0)
-
-    name = " ".join(parts).strip()
-    if name:
-        return name
-    return f"{letter} drive" if letter else "unnamed"
-
-
-def _ago(seconds: float) -> str:
-    minutes = int(seconds // 60)
-    if minutes < 60:
-        return f"{max(minutes, 1)} min"
-    hours = minutes // 60
-    return f"{hours} h" if hours < 24 else f"{hours // 24} d"
+__all__ = [
+    "DEFAULT_SKIP_WORDS",
+    "MAX_DETAIL",
+    "STALE_SECONDS",
+    "collect",
+    "pretty_project",
+]
 
 
 def _tail_lines(path: Path) -> list[str]:

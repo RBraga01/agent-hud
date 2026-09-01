@@ -20,6 +20,10 @@ application credentials and a device, neither of which this project has yet.
   accounts; a reader for live Claude Code sessions; and a file reader for
   driving the display by hand.
 - The gateway asks its feeders on every request, so nothing is ever stale.
+- `claude_hook` feeder plus two Claude Code hooks (`Stop`, `UserPromptSubmit`)
+  in `integrations/claude_code/`. This is the supported way to tell whose
+  turn it is; the transcript-parsing `claude` feeder stays as a no-setup
+  fallback. The hook path never reads or stores prompt text.
 
 ### Fixed
 - A gateway answering with something that is not a list of items was
@@ -49,5 +53,5 @@ application credentials and a device, neither of which this project has yet.
   which is untested on a device.
 - The gateway is a loopback-only development server with no authentication.
   A network-reachable gateway is a separate build.
-- The Claude reader depends on an undocumented file format and may stop
-  working without warning. A Stop hook is the supported replacement.
+- The `claude` feeder still depends on an undocumented transcript format.
+  It is now a fallback — `claude_hook` is the supported path.

@@ -25,12 +25,13 @@ _POLL_SECONDS_VAR = "AGENT_HUD_POLL_SECONDS"
 _FEEDERS_VAR = "AGENT_HUD_FEEDERS"
 _SHOW_PROMPTS_VAR = "AGENT_HUD_SHOW_PROMPTS"
 _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
+_CLAUDE_STATE_VAR = "AGENT_HUD_CLAUDE_STATE"
 _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
 DEFAULT_FEEDERS = ("simulated",)
-KNOWN_FEEDERS = ("simulated", "claude", "file")
+KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "file")
 
 _TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 
@@ -49,6 +50,11 @@ class Settings:
     show_prompts: bool = False
     claude_projects: Path = field(
         default_factory=lambda: Path.home() / ".claude" / "projects"
+    )
+    # Where the Claude Code hooks write session state, for the claude_hook
+    # feeder. The hooks default to the same path.
+    claude_state: Path = field(
+        default_factory=lambda: Path.home() / ".agent-hud" / "claude"
     )
     # Extra generic folder names to drop when naming a project. Empty means
     # use the feeder's own list, which already covers the common ones.
@@ -125,6 +131,13 @@ def _read_claude_projects(env: Mapping[str, str]) -> Path:
     return Path(raw.strip())
 
 
+def _read_claude_state(env: Mapping[str, str]) -> Path:
+    raw = env.get(_CLAUDE_STATE_VAR)
+    if raw is None or not raw.strip():
+        return Path.home() / ".agent-hud" / "claude"
+    return Path(raw.strip())
+
+
 def _read_skip_path_words(env: Mapping[str, str]) -> tuple[str, ...]:
     raw = env.get(_SKIP_PATH_WORDS_VAR, "")
     return tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -143,5 +156,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         feeders=_read_feeders(source),
         show_prompts=_read_show_prompts(source),
         claude_projects=_read_claude_projects(source),
+        claude_state=_read_claude_state(source),
         skip_path_words=_read_skip_path_words(source),
     )

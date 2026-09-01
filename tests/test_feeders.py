@@ -354,3 +354,40 @@ def test_a_short_transcript_is_still_read_completely(tmp_path):
                   [{"type": "user"}, {"type": "assistant"}], age_seconds=600)
 
     assert claude_sessions.collect(tmp_path, now=NOW)[0]["needs_you"] is True
+
+
+# --- claude_hook through the dispatcher ------------------------------
+
+
+def test_dispatcher_runs_the_claude_hook_feeder(tmp_path):
+    import json as _json
+
+    from agent_hud.config import load_settings
+    from feeders import collect
+
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "s1.json").write_text(
+        _json.dumps(
+            {"session_id": "s1", "project": "Bookshop", "state": "waiting",
+             "at": time.time() - 300}
+        ),
+        encoding="utf-8",
+    )
+    settings = load_settings(env={
+        "AGENT_HUD_FEEDERS": "claude_hook",
+        "AGENT_HUD_CLAUDE_STATE": str(state),
+    })
+
+    items = collect(settings)
+
+    assert len(items) == 1
+    assert items[0]["title"] == "Bookshop"
+    assert items[0]["needs_you"] is True
+
+
+def test_claude_hook_is_a_known_feeder():
+    from agent_hud.config import load_settings
+
+    s = load_settings(env={"AGENT_HUD_FEEDERS": "claude_hook,simulated"})
+    assert s.feeders == ("claude_hook", "simulated")

@@ -82,9 +82,10 @@ All settings are optional and read from the environment. Nothing is written into
 |---|---|---|
 | `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/items` | Where to ask for the list |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
-| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude`, `file` |
+| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
-| `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where to look for Claude sessions |
+| `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where the `claude` feeder looks for sessions |
+| `AGENT_HUD_CLAUDE_STATE` | `~/.agent-hud/claude` | Where the `claude_hook` feeder and hooks read/write state |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
 
@@ -111,18 +112,44 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | Feeder | What it reads |
 |---|---|
 | `simulated` | Nothing. Invented items, so the app can be run and demonstrated with no accounts and no personal data. This is the default. |
-| `claude` | Your live Claude Code sessions under `~/.claude/projects`. The last entry in a transcript says whose turn it is. |
+| `claude_hook` | State written by two small Claude Code hooks. The supported way to know whose turn it is. Needs a one-time install (below). |
+| `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
 | `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. |
 
 Choose them in order — the first one listed appears first on screen:
 
 ```bash
-AGENT_HUD_FEEDERS=claude,simulated python -m stub_server.server
+AGENT_HUD_FEEDERS=claude_hook,simulated python -m stub_server.server
 ```
 
-**Your prompt text is off by default.** With the `claude` feeder a row normally reads `your turn - 13 h`. Set `AGENT_HUD_SHOW_PROMPTS=1` and it shows the last thing you actually asked instead. That is your own writing, appearing on a display and passing through a file, so it is something you switch on rather than something you have to notice and switch off.
+### Installing the Claude Code hooks
 
-**The `claude` feeder reads an undocumented format.** Nothing promises those session files keep their shape, so it may stop working without warning. It earns its place by needing no setup at all. A Claude Code `Stop` hook is the supported way to do this and should replace it once you want it running for real.
+`integrations/claude_code/` has two scripts. `agent_hud_stop.py` runs when Claude finishes a turn and records that the session is waiting on you; `agent_hud_prompt.py` runs when you reply and clears it. They write one small JSON file per session — project, state, timestamp — and **never read or store your prompt text**.
+
+Add to `~/.claude/settings.json` (use absolute paths):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command",
+        "command": "python /abs/path/to/agent-hud/integrations/claude_code/agent_hud_stop.py" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command",
+        "command": "python /abs/path/to/agent-hud/integrations/claude_code/agent_hud_prompt.py" }] }
+    ]
+  }
+}
+```
+
+Then `AGENT_HUD_FEEDERS=claude_hook`. State goes to `~/.agent-hud/claude/` by default; `AGENT_HUD_CLAUDE_STATE` overrides it (the hooks read the same variable).
+
+### The `claude` feeder is the fallback
+
+It reads the transcript files with no setup, which is useful for a first try, but nothing promises those files keep their shape. Prefer `claude_hook` for anything ongoing.
+
+**Prompt text is off by default** for the `claude` feeder — a row reads `your turn - 13 h`. `AGENT_HUD_SHOW_PROMPTS=1` shows the last thing you asked instead. That is your own writing on a display, so you switch it on deliberately. The `claude_hook` feeder never has prompt text to show.
 
 ## What the gateway sends
 
@@ -157,7 +184,10 @@ agent_hud/
   app.py                the screen                         needs the framework
 feeders/
   simulated.py          invented items, no accounts needed no framework needed
-  claude_sessions.py    reads live Claude Code sessions    no framework needed
+  claude_hook.py        reads Claude Code hook state       no framework needed
+  claude_sessions.py    reads Claude transcripts (fallback)no framework needed
+integrations/
+  claude_code/          the two Claude Code hook scripts
 stub_server/
   server.py             asks the feeders on every request  no framework needed
   agents.json           edit this when using the file feeder
@@ -185,7 +215,7 @@ Where this is going, in the order it needs to happen.
 | **Done** | Honest failure | A calm display and a broken one never look alike |
 | **Done** | One request at a time | A slow gateway cannot walk the display backwards |
 | **Next** | Confirm the credential path | Ask Raven whether a deployed app gets `app_id` / `app_key` from the device, or must carry them in `main.py` |
-| **Next** | A supported Claude signal | A `Stop` hook instead of reading undocumented session files |
+| **Done** | A supported Claude signal | `claude_hook` feeder + two Claude Code hooks, replacing the transcript parser |
 | **Next** | More sources | Codex and GitHub feeders, and an event-shaped gateway |
 | **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
 | **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
