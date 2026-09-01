@@ -44,6 +44,9 @@ application credentials and a device, neither of which this project has yet.
 - Voice is not built yet. It needs its own design first.
 - Not run on real hardware. Eye-tracking accuracy, blink detection and the
   physical button are all unverified.
+- How a deployed app receives its Raven credentials at runtime is not known
+  from the public Framework source. This app reads them from the environment,
+  which is untested on a device.
 - The gateway is a loopback-only development server with no authentication.
   A network-reachable gateway is a separate build.
 - The Claude reader depends on an undocumented file format and may stop

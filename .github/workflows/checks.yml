@@ -52,15 +52,28 @@ jobs:
           fi
           echo "Clean."
 
-      - name: Check no secrets were committed
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history, so the scan covers every commit, not just the tip.
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+
+      - name: Guard against the framework or a bare .env
         run: |
           if git ls-files | grep -qE '^\.env$'; then
             echo ".env must not be committed."
             exit 1
           fi
-          if git grep -nIE '(sk-[A-Za-z0-9]{20,}|app_key\s*=\s*"[^"]+")' -- \
-             ':!*.md' ':!.github/*' > /dev/null; then
-            echo "Something that looks like a credential is committed."
+          if git ls-files | grep -qi 'raven[-_]framework/'; then
+            echo "Raven Framework source found in the repository."
             exit 1
           fi
           echo "Clean."

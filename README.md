@@ -86,6 +86,7 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
 | `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where to look for Claude sessions |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
+| `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
 
 They are read straight from the environment. Set them before running:
 
@@ -183,6 +184,7 @@ Where this is going, in the order it needs to happen.
 | **Done** | A quiet display | Nothing visible until something needs you; stare to see what |
 | **Done** | Honest failure | A calm display and a broken one never look alike |
 | **Done** | One request at a time | A slow gateway cannot walk the display backwards |
+| **Next** | Confirm the credential path | Ask Raven whether a deployed app gets `app_id` / `app_key` from the device, or must carry them in `main.py` |
 | **Next** | A supported Claude signal | A `Stop` hook instead of reading undocumented session files |
 | **Next** | More sources | Codex and GitHub feeders, and an event-shaped gateway |
 | **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
@@ -206,6 +208,8 @@ python main.py deploy
 ```
 
 `.ravignore` restricts the uploaded package to `main.py` and `agent_hud/` — the framework, tests, feeders and documents are all kept out.
+
+**One thing here is unverified.** The Framework passes `app_id` / `app_key` into the app at runtime too, not only at upload — its peripheral and button handling authenticate with them. Whether a deployed app receives its credentials from the device environment, or is expected to carry them in `main.py`, is not visible in the public Framework source. Reading them from the environment is the right choice regardless (a real key must never be committed), but on-device behaviour has not been tested and is a question for Raven — see the roadmap.
 
 ## Licence
 
