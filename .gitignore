@@ -19,6 +19,9 @@ raven-framework/
 .env.local
 agents.local.json
 
+# Runtime output from the Raven framework's logger
+logs/
+
 # Python
 __pycache__/
 *.py[cod]

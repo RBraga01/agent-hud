@@ -1,0 +1,38 @@
+[project]
+name = "agent-hud"
+version = "0.1.0"
+description = "A quiet status display for Raven Prism smart glasses"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# The Raven Framework is deliberately NOT listed here. It is proprietary,
+# installed separately by hand, and must never be pulled in automatically.
+# See the README for how to install it.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["agent_hud", "stub_server"]
+# app.py needs the Raven framework, which is proprietary and is never
+# installed in continuous integration, so its tests are skipped there and
+# counting it would make the number meaningless. The screen is verified by
+# its own tests locally and by eye in the simulator.
+omit = ["agent_hud/app.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+exclude = ["raven-framework", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

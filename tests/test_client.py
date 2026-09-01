@@ -11,6 +11,7 @@ thing under test is actually exercised.
 import json
 import threading
 import time
+from dataclasses import FrozenInstanceError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -85,7 +86,7 @@ def test_reports_failure_when_the_server_errors(stub_url):
 
 def test_reports_failure_when_the_body_is_not_json():
     class Garbage(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):
             body = b"<html>not json at all</html>"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -111,7 +112,7 @@ def test_reports_failure_when_the_body_is_not_json():
 
 def test_reports_failure_when_the_server_is_too_slow():
     class Slow(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):
             time.sleep(3)
 
         def log_message(self, *args):
@@ -165,5 +166,5 @@ def test_an_empty_but_valid_response_succeeds(stub_url):
 def test_the_result_is_immutable():
     result = fetch_items("http://127.0.0.1:9/items", timeout=1)
 
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         result.ok = True

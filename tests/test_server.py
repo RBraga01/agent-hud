@@ -32,7 +32,7 @@ def running_server(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    host, port = server.server_address[:2]
+    port = server.server_address[1]
     yield f"http://127.0.0.1:{port}", data_file
 
     server.shutdown()

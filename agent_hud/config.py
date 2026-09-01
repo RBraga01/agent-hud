@@ -12,8 +12,8 @@ that silently shows nothing.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8765/items"
 DEFAULT_POLL_SECONDS = 3.0

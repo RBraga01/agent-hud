@@ -5,6 +5,8 @@ written into source. Bad settings fail loudly at startup rather than
 producing a display that quietly does nothing.
 """
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from agent_hud.config import DEFAULT_GATEWAY_URL, DEFAULT_POLL_SECONDS, load_settings
@@ -72,7 +74,7 @@ def test_converts_the_interval_to_milliseconds_for_the_display_timer():
 def test_settings_are_immutable():
     settings = load_settings(env={})
 
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         settings.gateway_url = "https://somewhere.else/items"
 
 

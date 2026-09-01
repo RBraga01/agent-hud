@@ -6,6 +6,8 @@ exactly is dropped rather than guessed at. A malformed entry must never
 be able to crash the display or silently distort the count.
 """
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from agent_hud.items import Item, needs_you_count, parse_items
@@ -81,10 +83,22 @@ def test_returns_empty_list_for_an_empty_items_list():
         ({"id": "a", "title": "T", "detail": "d"}, "missing needs_you"),
         ({"id": "a", "title": "", "detail": "d", "needs_you": True}, "empty title"),
         ({"id": "", "title": "T", "detail": "d", "needs_you": True}, "empty id"),
-        ({"id": "a", "title": "T", "detail": "d", "needs_you": "true"}, "needs_you is a string"),
-        ({"id": "a", "title": "T", "detail": "d", "needs_you": 1}, "needs_you is a number"),
-        ({"id": "a", "title": 42, "detail": "d", "needs_you": True}, "title is not text"),
-        ({"id": "a", "title": "T", "detail": None, "needs_you": True}, "detail is not text"),
+        (
+            {"id": "a", "title": "T", "detail": "d", "needs_you": "true"},
+            "needs_you is a string",
+        ),
+        (
+            {"id": "a", "title": "T", "detail": "d", "needs_you": 1},
+            "needs_you is a number",
+        ),
+        (
+            {"id": "a", "title": 42, "detail": "d", "needs_you": True},
+            "title is not text",
+        ),
+        (
+            {"id": "a", "title": "T", "detail": None, "needs_you": True},
+            "detail is not text",
+        ),
         ("not even a dict", "entry is not an object"),
         (None, "entry is null"),
     ],
@@ -140,7 +154,7 @@ def test_ignores_extra_fields_the_gateway_might_add_later():
 def test_items_are_immutable_so_the_display_cannot_corrupt_them():
     item = parse_items(VALID_PAYLOAD)[0]
 
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         item.title = "changed"
 
 

@@ -31,7 +31,7 @@ class _ItemsHandler(BaseHTTPRequestHandler):
     # Set by create_server.
     data_path: Path
 
-    def do_GET(self) -> None:  # noqa: N802 - name required by BaseHTTPRequestHandler
+    def do_GET(self) -> None:
         if self.path.split("?")[0] != ITEMS_PATH:
             self._respond(404, {"error": "not found"})
             return
