@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "id": "claude-deploy",
+      "title": "Claude Code",
+      "detail": "approve deploy?",
+      "needs_you": true
+    },
+    {
+      "id": "pr-38",
+      "title": "PR 38",
+      "detail": "review requested",
+      "needs_you": true
+    },
+    {
+      "id": "codex-run",
+      "title": "Codex",
+      "detail": "running, 84 of 91 tests",
+      "needs_you": false
+    }
+  ]
+}
