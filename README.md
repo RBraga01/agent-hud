@@ -10,7 +10,9 @@ Most of the time it shows almost nothing. When something is waiting on you, a sm
 
 ## How it looks
 
-![The HUD in Raven's simulator](docs/demo.gif)
+| Daylight | Low light |
+|---|---|
+| ![The HUD in Raven's simulator, daylight background](docs/demo_day.gif) | ![The HUD in Raven's simulator, low-light background](docs/demo_night.gif) |
 
 Four states:
 
@@ -23,7 +25,9 @@ Four states:
 
 The screen moves between these with short slide-and-fade transitions &mdash; the card unfolds from where the count sits, rather than popping in. `AGENT_HUD_ANIMATIONS=off` makes every change instant.
 
-![Opening and closing the detail card](docs/transition.gif)
+| Daylight | Low light |
+|---|---|
+| ![Opening and closing the detail card, daylight background](docs/transition_day.gif) | ![Opening and closing the detail card, low-light background](docs/transition_night.gif) |
 
 ## What you need
 
