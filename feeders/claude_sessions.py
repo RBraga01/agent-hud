@@ -56,7 +56,7 @@ def pretty_project(
 ) -> str:
     """Turn an encoded folder name into something worth reading.
 
-    ``e--Projects-api-core`` becomes ``api core``. The leading drive and
+    ``d--code-api-core`` becomes ``api core``. The leading drive and
     any generic container folders are dropped; what is left is the project.
     """
     drive = _DRIVE.match(folder)

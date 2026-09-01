@@ -63,7 +63,7 @@ def write_session(root, project, name, entries, age_seconds):
 
 
 def test_a_session_waiting_on_you_needs_you(tmp_path):
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "user"}, {"type": "assistant"}], age_seconds=600)
 
     items = claude_sessions.collect(tmp_path, now=NOW)
@@ -74,7 +74,7 @@ def test_a_session_waiting_on_you_needs_you(tmp_path):
 
 
 def test_a_session_still_working_does_not_need_you(tmp_path):
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"}, {"type": "user"}], age_seconds=600)
 
     items = claude_sessions.collect(tmp_path, now=NOW)
@@ -84,7 +84,7 @@ def test_a_session_still_working_does_not_need_you(tmp_path):
 
 def test_a_session_that_just_replied_is_given_a_moment(tmp_path):
     # Claude may still be mid-turn; do not call for attention immediately.
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"}], age_seconds=5)
 
     assert claude_sessions.collect(tmp_path, now=NOW)[0]["needs_you"] is False
@@ -92,7 +92,7 @@ def test_a_session_that_just_replied_is_given_a_moment(tmp_path):
 
 def test_an_abandoned_session_drops_out_entirely(tmp_path):
     write_session(
-        tmp_path, "e--Projects-Old", "old1",
+        tmp_path, "c--Projects-Old", "old1",
         [{"type": "assistant"}],
         age_seconds=claude_sessions.STALE_SECONDS + 60,
     )
@@ -101,9 +101,9 @@ def test_an_abandoned_session_drops_out_entirely(tmp_path):
 
 
 def test_things_waiting_on_you_come_first(tmp_path):
-    write_session(tmp_path, "e--Projects-Busy", "busy1",
+    write_session(tmp_path, "c--Projects-Busy", "busy1",
                   [{"type": "user"}], age_seconds=300)
-    write_session(tmp_path, "e--Projects-Waiting", "wait1",
+    write_session(tmp_path, "c--Projects-Waiting", "wait1",
                   [{"type": "assistant"}], age_seconds=300)
 
     items = claude_sessions.collect(tmp_path, now=NOW)
@@ -113,7 +113,7 @@ def test_things_waiting_on_you_come_first(tmp_path):
 
 def test_your_prompt_text_is_not_shown_by_default(tmp_path):
     # It is your own writing, on a display, and in a file on disk.
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"},
                    {"type": "last-prompt", "lastPrompt": "something private"}],
                   age_seconds=600)
@@ -125,7 +125,7 @@ def test_your_prompt_text_is_not_shown_by_default(tmp_path):
 
 
 def test_your_prompt_text_appears_when_you_ask_for_it(tmp_path):
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"},
                    {"type": "last-prompt", "lastPrompt": "fix the parser"}],
                   age_seconds=600)
@@ -136,7 +136,7 @@ def test_your_prompt_text_appears_when_you_ask_for_it(tmp_path):
 
 
 def test_a_long_prompt_is_cut_to_fit_a_row(tmp_path):
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"},
                    {"type": "last-prompt", "lastPrompt": "x" * 200}],
                   age_seconds=600)
@@ -147,7 +147,7 @@ def test_a_long_prompt_is_cut_to_fit_a_row(tmp_path):
 
 
 def test_a_damaged_transcript_is_skipped_not_fatal(tmp_path):
-    d = tmp_path / "e--Projects-Broken"
+    d = tmp_path / "c--Projects-Broken"
     d.mkdir(parents=True)
     f = d / "bad.jsonl"
     f.write_text("{ this is not json\nnor is this", encoding="utf-8")
@@ -163,7 +163,7 @@ def test_a_missing_projects_folder_is_not_fatal(tmp_path):
 
 
 def test_every_item_matches_the_contract(tmp_path):
-    write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                   [{"type": "assistant"}], age_seconds=600)
 
     raw = claude_sessions.collect(tmp_path, now=NOW)
@@ -174,10 +174,10 @@ def test_every_item_matches_the_contract(tmp_path):
 @pytest.mark.parametrize(
     "folder, expected",
     [
-        ("e--Projects-api-core", "api core"),
-        ("e--Projects-MYAPP", "MYAPP"),
+        ("d--code-api-core", "api core"),
+        ("e--repos-MYAPP", "MYAPP"),
         ("e--", "E drive"),
-        ("E--Projects-shop-front-app", "shop front app"),
+        ("f--work-shop-front-app", "shop front app"),
     ],
 )
 def test_folder_names_become_readable_titles(folder, expected):
@@ -185,13 +185,13 @@ def test_folder_names_become_readable_titles(folder, expected):
 
 
 def test_uses_the_real_clock_when_none_is_given(tmp_path):
-    write_session(tmp_path, "e--Projects-Now", "n1",
+    write_session(tmp_path, "c--Projects-Now", "n1",
                   [{"type": "assistant"}], age_seconds=0)
     # File is stamped at NOW, which is far in the past relative to the real
     # clock, so it should read as abandoned.
     import os
 
-    os.utime(tmp_path / "e--Projects-Now" / "n1.jsonl", (time.time(), time.time()))
+    os.utime(tmp_path / "c--Projects-Now" / "n1.jsonl", (time.time(), time.time()))
 
     assert len(claude_sessions.collect(tmp_path)) == 1
 
@@ -243,7 +243,7 @@ def test_collect_keeps_the_order_the_feeders_were_listed_in(tmp_path):
     from agent_hud.config import load_settings
     from feeders import collect
 
-    f = write_session(tmp_path, "e--Projects-Bookshop", "abc123",
+    f = write_session(tmp_path, "c--Projects-Bookshop", "abc123",
                       [{"type": "assistant"}], age_seconds=0)
     recent = time.time() - 600
     os.utime(f, (recent, recent))
@@ -340,7 +340,7 @@ def test_only_the_tail_of_a_long_transcript_is_read(tmp_path):
 
     entries = [{"type": "user", "filler": "x" * 500} for _ in range(4000)]
     entries.append({"type": "assistant"})
-    f = write_session(tmp_path, "e--Projects-Big", "big1", entries, age_seconds=600)
+    f = write_session(tmp_path, "c--Projects-Big", "big1", entries, age_seconds=600)
 
     assert f.stat().st_size > claude_sessions.TAIL_BYTES
 
@@ -350,7 +350,7 @@ def test_only_the_tail_of_a_long_transcript_is_read(tmp_path):
 
 
 def test_a_short_transcript_is_still_read_completely(tmp_path):
-    write_session(tmp_path, "e--Projects-Small", "s1",
+    write_session(tmp_path, "c--Projects-Small", "s1",
                   [{"type": "user"}, {"type": "assistant"}], age_seconds=600)
 
     assert claude_sessions.collect(tmp_path, now=NOW)[0]["needs_you"] is True
