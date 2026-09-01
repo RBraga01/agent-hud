@@ -19,6 +19,7 @@ switching it on puts it on a display and into a file on disk. See
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -32,19 +33,45 @@ STALE_SECONDS = 72 * 3600
 # characters. Longer than this and the text runs past its own outline.
 MAX_DETAIL = 30
 
-_PROJECT_PREFIX = "Projects"
+# Transcripts grow without limit and are re-read on every poll. Only the
+# end matters — whose turn it is, and the last prompt — so reading the
+# whole file would be megabytes of pointless work every few seconds.
+TAIL_BYTES = 64 * 1024
+
+# Folder names that describe where code is kept rather than which project
+# it is. Dropped from the front of a name so the project itself is what
+# shows. Several languages, because none of this should assume one
+# person's machine. Add your own with AGENT_HUD_SKIP_PATH_WORDS.
+DEFAULT_SKIP_WORDS = (
+    "projects", "projectos", "proyectos", "projekte", "projets",
+    "code", "src", "repos", "repositories", "dev", "development",
+    "workspace", "work", "documents", "users", "home",
+)
+
+_DRIVE = re.compile(r"^([a-zA-Z])--")
 
 
-def pretty_project(folder: str) -> str:
+def pretty_project(
+    folder: str, skip_words: tuple[str, ...] = DEFAULT_SKIP_WORDS
+) -> str:
     """Turn an encoded folder name into something worth reading.
 
-    ``e--Projects-api-core`` becomes ``api core``.
+    ``e--Projects-api-core`` becomes ``api core``. The leading drive and
+    any generic container folders are dropped; what is left is the project.
     """
-    name = folder.lstrip("eE").lstrip("-")
-    if name.startswith(_PROJECT_PREFIX):
-        name = name[len(_PROJECT_PREFIX):]
-    name = name.strip("-").replace("-", " ").strip()
-    return name or "E drive"
+    drive = _DRIVE.match(folder)
+    letter = drive.group(1).upper() if drive else ""
+    rest = folder[drive.end():] if drive else folder
+
+    lower = {w.lower() for w in skip_words}
+    parts = [p for p in rest.split("-") if p]
+    while parts and parts[0].lower() in lower:
+        parts.pop(0)
+
+    name = " ".join(parts).strip()
+    if name:
+        return name
+    return f"{letter} drive" if letter else "unnamed"
 
 
 def _ago(seconds: float) -> str:
@@ -55,11 +82,27 @@ def _ago(seconds: float) -> str:
     return f"{hours} h" if hours < 24 else f"{hours // 24} d"
 
 
+def _tail_lines(path: Path) -> list[str]:
+    """The last stretch of a transcript, as lines.
+
+    The first line of the chunk is usually cut in half, which is harmless:
+    unparseable lines are skipped anyway.
+    """
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - TAIL_BYTES))
+            chunk = handle.read()
+    except OSError:
+        return []
+    return chunk.decode("utf-8", errors="replace").splitlines()
+
+
 def _last_role_and_prompt(path: Path) -> tuple[str | None, str | None]:
     """Read backwards for whose turn it is, and the last thing you asked."""
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
+    lines = _tail_lines(path)
+    if not lines:
         return None, None
 
     role: str | None = None
@@ -81,7 +124,9 @@ def _last_role_and_prompt(path: Path) -> tuple[str | None, str | None]:
     return role, prompt
 
 
-def _read_session(path: Path, now: float, show_prompts: bool) -> dict | None:
+def _read_session(
+    path: Path, now: float, show_prompts: bool, skip_words: tuple[str, ...]
+) -> dict | None:
     try:
         age = now - path.stat().st_mtime
     except OSError:
@@ -108,14 +153,18 @@ def _read_session(path: Path, now: float, show_prompts: bool) -> dict | None:
 
     return {
         "id": f"claude-{path.stem[:8]}",
-        "title": pretty_project(path.parent.name),
+        "title": pretty_project(path.parent.name, skip_words),
         "detail": detail,
         "needs_you": waiting,
     }
 
 
 def collect(
-    root: Path | str, *, now: float | None = None, show_prompts: bool = False
+    root: Path | str,
+    *,
+    now: float | None = None,
+    show_prompts: bool = False,
+    skip_words: tuple[str, ...] = DEFAULT_SKIP_WORDS,
 ) -> list[dict]:
     """Every live session under *root*, the ones waiting on you first.
 
@@ -125,6 +174,7 @@ def collect(
         now: Current time in seconds. Defaults to the real clock.
         show_prompts: Include the last thing you asked in the detail line.
             Off by default; it is your own writing.
+        skip_words: Generic folder names to drop when making a title.
     """
     moment = time.time() if now is None else now
     folder = Path(root)
@@ -133,7 +183,7 @@ def collect(
 
     items = []
     for path in sorted(folder.glob("*/*.jsonl")):
-        item = _read_session(path, moment, show_prompts)
+        item = _read_session(path, moment, show_prompts, skip_words)
         if item is not None:
             items.append(item)
 

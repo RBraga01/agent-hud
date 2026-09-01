@@ -24,6 +24,7 @@ _POLL_SECONDS_VAR = "AGENT_HUD_POLL_SECONDS"
 _FEEDERS_VAR = "AGENT_HUD_FEEDERS"
 _SHOW_PROMPTS_VAR = "AGENT_HUD_SHOW_PROMPTS"
 _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
+_SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -48,6 +49,9 @@ class Settings:
     claude_projects: Path = field(
         default_factory=lambda: Path.home() / ".claude" / "projects"
     )
+    # Extra generic folder names to drop when naming a project. Empty means
+    # use the feeder's own list, which already covers the common ones.
+    skip_path_words: tuple[str, ...] = ()
 
     @property
     def poll_interval_ms(self) -> int:
@@ -117,6 +121,11 @@ def _read_claude_projects(env: Mapping[str, str]) -> Path:
     return Path(raw.strip())
 
 
+def _read_skip_path_words(env: Mapping[str, str]) -> tuple[str, ...]:
+    raw = env.get(_SKIP_PATH_WORDS_VAR, "")
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Build settings from the given environment, or the real one.
 
@@ -130,4 +139,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         feeders=_read_feeders(source),
         show_prompts=_read_show_prompts(source),
         claude_projects=_read_claude_projects(source),
+        skip_path_words=_read_skip_path_words(source),
     )

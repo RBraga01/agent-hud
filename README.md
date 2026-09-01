@@ -10,7 +10,9 @@ Most of the time it shows almost nothing. When something is waiting on you, a sm
 
 ## How it looks
 
-Four states, in daylight and at night:
+![The HUD in Raven's simulator](docs/demo.gif)
+
+Four states:
 
 | State | What is on screen |
 |---|---|
@@ -154,6 +156,23 @@ ruff check .
 ```
 
 With the framework installed you get the full suite. Without it, the screen tests skip and the rest still run — the same thing the automated checks see.
+
+## Roadmap
+
+Where this is going, in the order it needs to happen.
+
+| | | |
+|---|---|---|
+| **Done** | A quiet display | Nothing visible until something needs you; stare to see what |
+| **Done** | Honest failure | A calm display and a broken one never look alike |
+| **Done** | One request at a time | A slow gateway cannot walk the display backwards |
+| **Next** | A supported Claude signal | A `Stop` hook instead of reading undocumented session files |
+| **Next** | More sources | Codex and GitHub feeders, and an event-shaped gateway |
+| **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
+| **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
+| **Later** | Acting, carefully | Approving things by eye is a much bigger decision about safety than reading is. It comes last, on purpose, and only once reading has proved itself. |
+
+**What is not built.** The gateway is a development server: no authentication, loopback only. It is fine for the simulator and unfit for anything else. Making it reachable over a network is a real piece of work, not a change of address. And nothing has run on real hardware, because Raven has not opened deployment.
 
 ## Deploying to glasses
 

@@ -12,7 +12,7 @@ broken gateway quickly; guessing hides it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # Required text fields that must be present and non-empty.
@@ -41,8 +41,8 @@ def _parse_item(raw: Any) -> Item | None:
     if not isinstance(raw, dict):
         return None
 
-    for field in _REQUIRED_TEXT:
-        value = raw.get(field)
+    for name in _REQUIRED_TEXT:
+        value = raw.get(name)
         if not isinstance(value, str) or not value:
             return None
 
@@ -61,20 +61,48 @@ def _parse_item(raw: Any) -> Item | None:
     )
 
 
-def parse_items(payload: Any) -> list[Item]:
-    """Turn a gateway response into items, dropping anything malformed.
+@dataclass(frozen=True)
+class ParsedPayload:
+    """What a gateway response turned out to contain.
 
-    Never raises. A payload that makes no sense yields an empty list.
+    Attributes:
+        items: The entries that matched the contract.
+        dropped: How many entries did not, and were discarded.
+        valid: False when the payload was not a list of items at all.
+            An invalid payload means the gateway cannot be trusted, which
+            is a different thing from it having nothing to report.
+    """
+
+    items: list[Item] = field(default_factory=list)
+    dropped: int = 0
+    valid: bool = True
+
+
+def parse_payload(payload: Any) -> ParsedPayload:
+    """Read a gateway response, keeping empty and broken clearly apart.
+
+    Never raises.
     """
     if not isinstance(payload, dict):
-        return []
+        return ParsedPayload(valid=False)
 
     raw_items = payload.get("items")
     if not isinstance(raw_items, list):
-        return []
+        return ParsedPayload(valid=False)
 
-    parsed = (_parse_item(raw) for raw in raw_items)
-    return [item for item in parsed if item is not None]
+    items, dropped = [], 0
+    for raw in raw_items:
+        item = _parse_item(raw)
+        if item is None:
+            dropped += 1
+        else:
+            items.append(item)
+    return ParsedPayload(items=items, dropped=dropped, valid=True)
+
+
+def parse_items(payload: Any) -> list[Item]:
+    """Just the items. For callers that only need to check their own shape."""
+    return parse_payload(payload).items
 
 
 def needs_you_count(items: list[Item]) -> int:

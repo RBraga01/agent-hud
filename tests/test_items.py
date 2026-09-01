@@ -10,7 +10,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from agent_hud.items import Item, needs_you_count, parse_items
+from agent_hud.items import Item, needs_you_count, parse_items, parse_payload
 
 VALID_PAYLOAD = {
     "items": [
@@ -166,3 +166,78 @@ def test_counts_only_the_items_that_need_you():
 
 def test_counts_zero_for_an_empty_list():
     assert needs_you_count([]) == 0
+
+
+# --- telling "empty" apart from "broken" ------------------------------
+#
+# The single most important distinction in this project. A display showing
+# nothing must mean nothing needs you, never that the gateway is talking
+# nonsense.
+
+
+def test_a_valid_payload_with_no_items_is_valid():
+    result = parse_payload({"items": []})
+
+    assert result.valid is True
+    assert result.items == []
+    assert result.dropped == 0
+
+
+def test_a_valid_payload_with_items_is_valid():
+    result = parse_payload(VALID_PAYLOAD)
+
+    assert result.valid is True
+    assert len(result.items) == 3
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"something_broke": True},
+        {"items": "not a list"},
+        {"items": 42},
+        "garbage",
+        None,
+        [],
+        123,
+    ],
+)
+def test_a_payload_that_is_not_a_list_of_items_is_invalid(payload):
+    # Previously all of these came back as an empty list and the display
+    # cheerfully reported that nothing needed you.
+    result = parse_payload(payload)
+
+    assert result.valid is False
+    assert result.items == []
+
+
+def test_counts_the_entries_it_had_to_throw_away():
+    payload = {
+        "items": [
+            VALID_PAYLOAD["items"][0],
+            {"id": "broken", "title": "No detail"},
+            {"nonsense": True},
+        ]
+    }
+
+    result = parse_payload(payload)
+
+    assert result.valid is True
+    assert len(result.items) == 1
+    assert result.dropped == 2
+
+
+def test_a_payload_of_entirely_bad_entries_is_still_a_valid_payload():
+    # The gateway spoke the right language; its contents were wrong. That
+    # is a different failure from an unreachable or nonsensical gateway,
+    # and the count of discarded entries is what surfaces it.
+    result = parse_payload({"items": [{"nope": 1}, {"nope": 2}]})
+
+    assert result.valid is True
+    assert result.items == []
+    assert result.dropped == 2
+
+
+def test_parse_items_still_returns_a_plain_list():
+    # The convenience wrapper the feeders use to check their own shape.
+    assert len(parse_items(VALID_PAYLOAD)) == 3

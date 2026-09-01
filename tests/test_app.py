@@ -7,6 +7,8 @@ the panel opens. How it actually looks is checked by eye in the
 simulator, because readability on an additive display cannot be asserted.
 """
 
+import time
+
 import pytest
 
 from agent_hud.client import FetchResult
@@ -274,3 +276,123 @@ def test_status_markers_are_never_dimmed(qapp):
 
     assert marker.disabled is False
     assert marker.enable_click is False
+
+
+# --- "empty" must never be confused with "broken" ---------------------
+
+
+def test_a_gateway_talking_nonsense_keeps_the_last_list(qapp):
+    hud = make_hud(qapp, items=[WAITING, ALSO_WAITING])
+
+    hud.apply(FetchResult(ok=False, reason="gateway did not send a list of items"))
+
+    assert hud.count_text == "2"
+    assert hud.is_online is False
+    assert hud.is_complete is False
+
+
+def test_a_clean_response_is_complete(qapp):
+    hud = make_hud(qapp, items=[WAITING])
+
+    assert hud.is_complete is True
+
+
+def test_a_response_with_discarded_entries_is_not_complete(qapp):
+    # The connection is fine, but the picture has holes in it. Saying
+    # nothing about that would let a real alert vanish silently.
+    hud = make_hud(qapp, items=[WAITING])
+
+    hud.apply(FetchResult(items=[WAITING], ok=True, dropped=2))
+
+    assert hud.is_online is True
+    assert hud.is_complete is False
+    assert hud.count_text == "1"
+
+
+def test_recovering_from_discarded_entries_clears_the_warning(qapp):
+    hud = make_hud(qapp, items=[WAITING])
+    hud.apply(FetchResult(items=[WAITING], ok=True, dropped=1))
+
+    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+
+    assert hud.is_complete is True
+
+
+def test_an_empty_list_from_a_healthy_gateway_really_means_idle(qapp):
+    hud = make_hud(qapp, items=[WAITING])
+
+    hud.apply(FetchResult(items=[], ok=True))
+
+    assert hud.is_idle is True
+    assert hud.is_complete is True
+
+
+# --- one request at a time --------------------------------------------
+
+
+def test_a_slow_fetch_does_not_pile_up(qapp):
+    """The poll interval is shorter than the request timeout by default.
+
+    Without a guard, a slow gateway means several requests in flight at
+    once and an older answer can land after a newer one, walking the
+    display backwards. Over 5G that stops being theoretical.
+    """
+    import threading
+
+    started = []
+    release = threading.Event()
+
+    def slow_fetch(url, timeout):
+        started.append(1)
+        release.wait(3)
+        return FetchResult(items=[WAITING], ok=True)
+
+    hud = AgentHud(
+        settings=SETTINGS, fetch=slow_fetch, gaze=lambda: None,
+        clock=lambda: 0.0, auto_start=False,
+    )
+
+    hud._refresh_in_background()
+
+    # Wait until the worker is genuinely running before testing the guard;
+    # the thread pool has not necessarily picked it up when run() returns.
+    deadline = time.monotonic() + 5
+    while not started and time.monotonic() < deadline:
+        pump(qapp)
+        time.sleep(0.01)
+    assert started, "the first fetch never started"
+
+    hud._refresh_in_background()
+    hud._refresh_in_background()
+    assert len(started) == 1, "a second request was started while one was running"
+
+    release.set()
+    deadline = time.monotonic() + 5
+    while hud.is_fetching and time.monotonic() < deadline:
+        pump(qapp)
+        time.sleep(0.02)
+
+    assert hud.is_fetching is False
+    assert hud.count_text == "1"
+
+
+def test_the_guard_clears_so_later_polls_still_happen(qapp):
+    calls = []
+
+    def fetch(url, timeout):
+        calls.append(1)
+        return FetchResult(items=[WAITING], ok=True)
+
+    hud = AgentHud(
+        settings=SETTINGS, fetch=fetch, gaze=lambda: None,
+        clock=lambda: 0.0, auto_start=False,
+    )
+
+    for _ in range(3):
+        hud._refresh_in_background()
+        deadline = time.monotonic() + 5
+        while hud.is_fetching and time.monotonic() < deadline:
+            pump(qapp)
+            time.sleep(0.01)
+
+    assert len(calls) == 3

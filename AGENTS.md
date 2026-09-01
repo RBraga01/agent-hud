@@ -27,6 +27,25 @@ So every decision worth testing lives in a module that does not import the frame
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
+## The rule that outranks everything else
+
+**A calm display and a broken one must never look alike.**
+
+The whole product is "you can trust that nothing on screen means nothing needs you". Every failure has to stay visible, so three outcomes are kept strictly apart:
+
+| What came back | What happens |
+|---|---|
+| A list, with nothing in it | Idle. The world really is calm. |
+| A list, with items | Show them. |
+| Not a list at all, or unreachable | Keep the last known list, and mark it incomplete. |
+| A list where some entries were malformed | Show the good ones, and mark it incomplete. |
+
+`parse_payload` reports `valid` and `dropped` separately for this reason, and `AgentHud.is_complete` is what drives the amber marker. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
+
+## Only one request at a time
+
+The poll interval is shorter than the request timeout. Without a guard, a slow gateway leaves several requests in flight and an older answer can land after a newer one, walking the display backwards. `_refresh_in_background` refuses to start a second fetch while one is running, and clears the guard in a `finally` so a failure cannot latch it shut. Skipping a tick is harmless; the next is seconds away.
+
 ## Things about this display that are not obvious
 
 The glasses can only **add** light to the world. They can never darken it. Everything below follows from that one fact, and all of it was learned by rendering the screen and looking at it.

@@ -276,3 +276,81 @@ def test_the_file_feeder_is_skipped_when_no_path_is_given():
     settings = load_settings(env={"AGENT_HUD_FEEDERS": "file"})
 
     assert collect(settings) == []
+
+
+# --- readable titles, without assuming one person's folders -----------
+
+
+@pytest.mark.parametrize(
+    "folder, expected",
+    [
+        ("c--Projects-my-app", "my app"),
+        ("d--code-scraper", "scraper"),
+        ("e--src-parser", "parser"),
+        ("e--workspace-thing", "thing"),
+        ("e--Proyectos-tienda", "tienda"),
+        ("e--Projekte-laden", "laden"),
+        ("c--", "C drive"),
+        ("d--", "D drive"),
+    ],
+)
+def test_common_container_folders_are_dropped_whatever_the_language(folder, expected):
+    assert claude_sessions.pretty_project(folder) == expected
+
+
+def test_the_words_to_drop_can_be_changed():
+    assert claude_sessions.pretty_project(
+        "e--acme-widgets", skip_words=("acme",)
+    ) == "widgets"
+
+
+def test_a_folder_that_is_only_skippable_words_still_gets_a_name():
+    assert claude_sessions.pretty_project("e--projects") == "E drive"
+
+
+def test_the_skip_list_comes_from_settings(tmp_path):
+    import os
+
+    from agent_hud.config import load_settings
+    from feeders import collect
+
+    f = write_session(tmp_path, "e--acme-widgets", "s1",
+                      [{"type": "assistant"}], age_seconds=0)
+    recent = time.time() - 600
+    os.utime(f, (recent, recent))
+
+    settings = load_settings(env={
+        "AGENT_HUD_FEEDERS": "claude",
+        "AGENT_HUD_CLAUDE_PROJECTS": str(tmp_path),
+        "AGENT_HUD_SKIP_PATH_WORDS": "acme",
+    })
+
+    assert collect(settings)[0]["title"] == "widgets"
+
+
+# --- not re-reading whole transcripts ---------------------------------
+
+
+def test_only_the_tail_of_a_long_transcript_is_read(tmp_path):
+    """Transcripts grow without limit and are re-read on every poll.
+
+    Reading the whole file would mean megabytes of pointless I/O every few
+    seconds once a project has been going a while.
+    """
+
+    entries = [{"type": "user", "filler": "x" * 500} for _ in range(4000)]
+    entries.append({"type": "assistant"})
+    f = write_session(tmp_path, "e--Projects-Big", "big1", entries, age_seconds=600)
+
+    assert f.stat().st_size > claude_sessions.TAIL_BYTES
+
+    items = claude_sessions.collect(tmp_path, now=NOW)
+
+    assert items[0]["needs_you"] is True
+
+
+def test_a_short_transcript_is_still_read_completely(tmp_path):
+    write_session(tmp_path, "e--Projects-Small", "s1",
+                  [{"type": "user"}, {"type": "assistant"}], age_seconds=600)
+
+    assert claude_sessions.collect(tmp_path, now=NOW)[0]["needs_you"] is True

@@ -106,7 +106,7 @@ ROW_TEXT_INSET = 24
 ROW_PAD_TOP = 14
 
 IDLE_DOT_SIZE = 16
-OFFLINE_DOT_SIZE = 20
+INCOMPLETE_DOT_SIZE = 20
 
 # The panel sits inside the frame and is pushed right. The display covers
 # the right eye, so the guidance is to assume asymmetry rather than centre
@@ -132,7 +132,7 @@ CLOCK_TICK_MS = 10_000
 # warning colour, and it is fully saturated, which is what this display
 # needs — a dulled colour is one with less light in it.
 IDLE_COLOR = theme.basic_palette.white
-OFFLINE_COLOR = theme.basic_palette.yellow
+INCOMPLETE_COLOR = theme.basic_palette.yellow
 
 # Checked against the simulator's waveguide blend in all three lighting
 # presets. At night regular weight is fine, but in daylight the display
@@ -175,6 +175,8 @@ class AgentHud(RavenApp):
 
         self._items: list[Item] = []
         self._online = True
+        self._dropped = 0
+        self._fetching = False
         self._panel = DetailPanel(grace_seconds=DEFAULT_GRACE_SECONDS)
 
         self._async = AsyncRunner()
@@ -239,6 +241,22 @@ class AgentHud(RavenApp):
     def is_online(self) -> bool:
         """False when the last attempt to reach the gateway failed."""
         return self._online
+
+    @property
+    def is_complete(self) -> bool:
+        """True when the list on screen can be trusted to be the whole list.
+
+        False either because the gateway could not be reached or read, or
+        because it answered with entries that had to be discarded. Both
+        mean the same thing to the wearer: what you are looking at may be
+        missing something.
+        """
+        return self._online and self._dropped == 0
+
+    @property
+    def is_fetching(self) -> bool:
+        """True while a request is in flight."""
+        return self._fetching
 
     @property
     def is_panel_open(self) -> bool:
@@ -308,6 +326,7 @@ class AgentHud(RavenApp):
         look the same.
         """
         self._online = result.ok
+        self._dropped = result.dropped if result.ok else 0
         if result.ok:
             self._items = result.items
 
@@ -325,10 +344,15 @@ class AgentHud(RavenApp):
     def _view(self) -> tuple:
         """Everything that affects what is drawn, so needless redraws are skipped."""
         if self._panel.is_open:
-            return ("panel", tuple(self.panel_lines), self.overflow_count, self._online)
+            return (
+                "panel",
+                tuple(self.panel_lines),
+                self.overflow_count,
+                self.is_complete,
+            )
         if self.is_idle:
-            return ("idle", self._online)
-        return ("count", self.count_text, self._online)
+            return ("idle", self.is_complete)
+        return ("count", self.count_text, self.is_complete)
 
     def _render(self) -> None:
         view = self._view()
@@ -341,7 +365,7 @@ class AgentHud(RavenApp):
         self.app.clear()
         self._count_icon = None
 
-        if self.is_idle and self._online:
+        if self.is_idle and self.is_complete:
             # Truly nothing to say. No frame, no chrome, just proof of life.
             self._draw_idle_dot()
             return
@@ -355,8 +379,8 @@ class AgentHud(RavenApp):
         else:
             self._draw_count()
 
-        if not self._online:
-            self._draw_offline_dot()
+        if not self.is_complete:
+            self._draw_incomplete_dot()
 
     def _card(self, width: int, height: int) -> VerticalContainer:
         """A card sized to its contents.
@@ -473,17 +497,22 @@ class AgentHud(RavenApp):
             APP_SIZE // 2,
         )
 
-    def _draw_offline_dot(self) -> None:
-        """A separate marker so 'nothing waiting' and 'cannot reach the
-        gateway' never look like the same thing.
+    def _draw_incomplete_dot(self) -> None:
+        """A separate marker so a calm display and a broken one never look
+        like the same thing.
+
+        Shown when the gateway could not be reached, and also when it sent
+        entries that had to be discarded: in both cases the list on screen
+        may be missing something, which is the only thing this app must
+        never get wrong.
 
         Placed on the app rather than inside the card, so it lands in the
         same spot whichever of the two layouts is showing.
         """
         self.app.add(
-            _dot(OFFLINE_DOT_SIZE, OFFLINE_COLOR),
-            APP_SIZE - OFFLINE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_X,
-            APP_SIZE - OFFLINE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_BOTTOM,
+            _dot(INCOMPLETE_DOT_SIZE, INCOMPLETE_COLOR),
+            APP_SIZE - INCOMPLETE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_X,
+            APP_SIZE - INCOMPLETE_DOT_SIZE - FRAME_INSET - CARD_MARGIN_BOTTOM,
         )
 
     # -- timers ---------------------------------------------------------
@@ -503,7 +532,17 @@ class AgentHud(RavenApp):
         )
 
     def _refresh_in_background(self) -> None:
-        """Fetch off the main thread so the display never freezes."""
+        """Fetch off the main thread so the display never freezes.
+
+        One at a time. The poll interval is shorter than the request
+        timeout, so without this guard a slow gateway leaves several
+        requests in flight and an older answer can land after a newer one,
+        walking the display backwards. Skipping a tick is harmless; the
+        next one is only seconds away.
+        """
+        if self._fetching:
+            return
+        self._fetching = True
 
         def work() -> None:
             self._pending = self._fetch(
@@ -517,9 +556,15 @@ class AgentHud(RavenApp):
         self._async.run(work, on_complete=self._apply_pending)
 
     def _apply_pending(self) -> None:
-        if self._pending is not None:
-            self.apply(self._pending)
-            self._pending = None
+        """Runs on the main thread once the worker finishes, always."""
+        try:
+            if self._pending is not None:
+                self.apply(self._pending)
+                self._pending = None
+        finally:
+            # Cleared even if the fetch or the redraw failed, or the guard
+            # would latch and polling would stop for good.
+            self._fetching = False
 
     def _tick_gaze_from_sensor(self) -> None:
         self.tick_gaze(gaze_position=self._gaze())

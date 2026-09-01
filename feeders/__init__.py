@@ -47,9 +47,12 @@ def collect(settings: Settings, *, file_path: Path | str | None = None) -> list[
         if name == "simulated":
             items.extend(simulated.collect())
         elif name == "claude":
+            skip = claude_sessions.DEFAULT_SKIP_WORDS + settings.skip_path_words
             items.extend(
                 claude_sessions.collect(
-                    settings.claude_projects, show_prompts=settings.show_prompts
+                    settings.claude_projects,
+                    show_prompts=settings.show_prompts,
+                    skip_words=skip,
                 )
             )
         elif name == "file" and file_path is not None:

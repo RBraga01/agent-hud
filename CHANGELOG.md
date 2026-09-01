@@ -20,6 +20,21 @@ glasses until Raven issues credentials and opens their upload service.
   driving the display by hand.
 - The gateway asks its feeders on every request, so nothing is ever stale.
 
+### Fixed
+- A gateway answering with something that is not a list of items was
+  reported as "nothing needs you". It is now a failure, and the last known
+  list stays on screen with the incomplete marker. This was the single
+  worst thing the app could do and it is the reason the parser now reports
+  validity separately.
+- Entries that fail the contract are counted rather than silently dropped,
+  so a list with holes in it is marked incomplete instead of passing as
+  whole.
+- A slow gateway could leave several requests in flight at once, letting an
+  older answer land after a newer one. Only one runs at a time now.
+- Project names no longer assume one person's folder layout.
+- Long transcripts are read from the end rather than in full, so polling
+  does not grow more expensive as sessions get longer.
+
 ### Known limits
 - Staring can only be tested with a mouse. Real eye tracking is accurate to
   two or three degrees, so the target may need to be larger than it looks.

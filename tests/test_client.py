@@ -8,6 +8,7 @@ These tests run real servers rather than mocking the network, so the
 thing under test is actually exercised.
 """
 
+import json
 import threading
 import time
 from dataclasses import FrozenInstanceError
@@ -165,3 +166,62 @@ def test_the_result_is_immutable():
 
     with pytest.raises(FrozenInstanceError):
         result.ok = True
+
+
+# --- telling "empty" apart from "broken" ------------------------------
+
+
+def test_a_gateway_talking_nonsense_is_a_failure():
+    # It answers, with valid JSON, something that is not a list of items.
+    # Reporting that as "nothing needs you" is the worst thing this can do.
+    class Nonsense(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"something_broke": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    base, server, thread = _serve(Nonsense)
+    try:
+        result = fetch_items(f"{base}/items")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result.ok is False
+    assert result.items == []
+    assert result.reason != ""
+
+
+def test_a_genuinely_empty_list_is_a_success(stub_url):
+    url, state = stub_url
+    state["items"] = []
+
+    result = fetch_items(url)
+
+    assert result.ok is True
+    assert result.items == []
+    assert result.dropped == 0
+
+
+def test_reports_how_many_entries_had_to_be_discarded(stub_url):
+    url, state = stub_url
+    state["items"] = [SAMPLE["items"][0], {"broken": True}, {"also": "broken"}]
+
+    result = fetch_items(url)
+
+    assert result.ok is True
+    assert len(result.items) == 1
+    assert result.dropped == 2
+
+
+def test_a_clean_response_discards_nothing(stub_url):
+    url, _ = stub_url
+
+    assert fetch_items(url).dropped == 0
