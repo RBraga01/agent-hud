@@ -41,15 +41,31 @@ from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_items
 from .config import Settings, load_settings
 from .interaction import DEFAULT_GRACE_SECONDS, DetailPanel, Rect
 from .items import Item, needs_you_count
+from .transitions import (
+    APP_SIZE,
+    CARD_MARGIN_BOTTOM,
+    CARD_MARGIN_TOP,
+    CARD_MARGIN_X,
+    CARD_SPACING,
+    CARD_WIDTH,
+    COUNT_CARD_WIDTH,
+    COUNT_LABEL_HEIGHT,
+    COUNT_RING_SIZE,
+    EDGE_MARGIN,
+    FRAME_INSET,
+    IDLE_DOT_SIZE,
+    MAX_PANEL_ITEMS,
+    OVERFLOW_LINE_HEIGHT,
+    ROW_HEIGHT,
+    TITLE_HEIGHT,
+    duration_ms,
+    ring_rect,
+    transition_for,
+)
 
-# The app container the framework hands us, and where it sits on the display.
-APP_SIZE = 640
+# Where the app container sits inside the 720x720 window.
 APP_OFFSET_X = 40
 APP_OFFSET_Y = 50
-
-# Enough that nothing sits against the edge of vision, where it is both
-# hard to read and easy to trigger by accident.
-EDGE_MARGIN = 24
 
 # --- The outline language -------------------------------------------------
 #
@@ -68,44 +84,22 @@ EDGE_MARGIN = 24
 # diagonal gradient on every border, 3px wide, 20px corners. Overriding the
 # border with flat white — which is what this did at first — switches that
 # gradient off and makes the app look subtly foreign next to Raven's own.
+# The layout constants above come from transitions.py, the framework-free
+# module the animation logic also uses, so the two cannot drift.
 WHITE = theme.basic_palette.white
 STROKE_WIDTH = theme.borders.width
 ROW_STROKE_WIDTH = 2
 CORNER_RADIUS = theme.borders.corner_radius
 
-FRAME_INSET = 6
-FRAME_SIZE = APP_SIZE - FRAME_INSET * 2
-
 COUNT_ICON_SIZE = 108
-COUNT_RING_SIZE = 132
 COUNT_TEXT_SIZE = 45
 COUNT_DWELL_MS = 1200
 
-# Margins follow ScrollableListCard, the closest example to this screen.
-CARD_MARGIN_X = 25
-CARD_MARGIN_TOP = 35
-CARD_MARGIN_BOTTOM = 35
-CARD_SPACING = 10
-
 PANEL_TITLE = "Needs you"
-CARD_WIDTH = FRAME_SIZE
 ROW_WIDTH = CARD_WIDTH - CARD_MARGIN_X * 2
-TITLE_HEIGHT = 46
-OVERFLOW_LINE_HEIGHT = 34
-
-# Cards are only as tall as what is in them. A full-height card around two
-# rows leaves a large empty box hanging in the middle of your vision, which
-# is exactly what Raven's compact card examples avoid.
-COUNT_CARD_WIDTH = COUNT_RING_SIZE + CARD_MARGIN_X * 2 + 36
-# Generous: a VerticalContainer lays out with a box layout, so if the card
-# is only exactly tall enough the layout compresses the ring to fit the
-# text's real height and the circle comes out clipped.
-COUNT_LABEL_HEIGHT = 42
-ROW_HEIGHT = 96
 ROW_TEXT_INSET = 24
 ROW_PAD_TOP = 14
 
-IDLE_DOT_SIZE = 16
 INCOMPLETE_DOT_SIZE = 20
 
 # The panel sits inside the frame and is pushed right. The display covers
@@ -114,8 +108,6 @@ INCOMPLETE_DOT_SIZE = 20
 
 # Six lines maximum on screen. Each row costs two, leaving room for the
 # overflow line.
-MAX_PANEL_ITEMS = 2
-
 GAZE_TICK_MS = 100
 
 # The clock sits above the frame and just left of the home button, which is
@@ -186,6 +178,13 @@ class AgentHud(RavenApp):
         self._clock_routine: Routine | None = None
         self._rendered: tuple | None = None
         self._count_icon: Icon | None = None
+
+        self._animate = self._settings.animations
+        self._transitioning = False
+        self._anim_group = None  # kept alive while a transition runs
+        # The launch render, and the first data render right after it, are
+        # instant. Motion starts once the app is actually on screen.
+        self._first_data_render_done = False
 
         self._build_clock(running=auto_start)
         self._render()
@@ -334,6 +333,9 @@ class AgentHud(RavenApp):
             self._panel.close()
 
         self._render()
+        # From here on, state changes animate. The launch render and this
+        # first data render are instant — motion starts once the app is up.
+        self._first_data_render_done = True
 
     def refresh_now(self) -> None:
         """Fetch once, on this thread. Used at startup and in tests."""
@@ -355,32 +357,94 @@ class AgentHud(RavenApp):
         return ("count", self.count_text, self.is_complete)
 
     def _render(self) -> None:
+        # A transition is playing; it will settle to the current state when
+        # it finishes, so leave it alone.
+        if self._transitioning:
+            return
+
         view = self._view()
         if view == self._rendered:
             return
+
+        animate = self._animate and self._first_data_render_done
+        move = transition_for(self._rendered, view, animate=animate)
         self._rendered = view
 
         # clear() deletes every child, so nothing built here may be reused
         # on a later pass. Each redraw builds new widgets.
         self.app.clear()
         self._count_icon = None
+        top = self._draw_current()
 
+        if move != "none" and top is not None:
+            self._animate_in(top, move)
+
+    def _draw_current(self):
+        """Build the widgets for the current state. Returns the top widget."""
         if self.is_idle and self.is_complete:
             # Truly nothing to say. No frame, no chrome, just proof of life.
-            self._draw_idle_dot()
-            return
+            return self._draw_idle_dot()
 
         # Two different layouts, so two different hosts. The panel is a
         # stacked card, exactly as the examples build one. The resting count
         # is placed by hand, which a VerticalContainer cannot do: its add()
         # only stacks and takes no coordinates.
-        if self._panel.is_open:
-            self._draw_panel()
-        else:
-            self._draw_count()
+        top = self._draw_panel() if self._panel.is_open else self._draw_count()
 
         if not self.is_complete:
             self._draw_incomplete_dot()
+        return top
+
+    # -- transitions --------------------------------------------------------
+
+    def _animate_in(self, widget, move: str) -> None:
+        """Slide-and-fade the newly built top widget into place.
+
+        A geometry animation would fight the framework's fixed widget
+        sizes, so the motion is a short vertical travel plus an opacity
+        ramp — enough to read as a card opening rather than a pop.
+        """
+        from PySide6.QtCore import QParallelAnimationGroup, QPoint
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        from raven_framework import RavenCurve, make_property_animation
+
+        home = widget.pos()
+        start_map = {
+            "grow": QPoint(home.x(), home.y() + 12),
+            "expand": QPoint(home.x(), ring_rect().y),
+            "collapse": QPoint(home.x(), home.y() + 20),
+            "shrink": QPoint(home.x(), home.y() + 8),
+        }
+        widget.move(start_map.get(move, home))
+
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(0.0)
+        widget.setGraphicsEffect(effect)
+
+        springy = move in ("grow", "expand")
+        curve = RavenCurve.OUT_BACK if springy else RavenCurve.OUT_CUBIC
+        dur = duration_ms(move)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(
+            make_property_animation(widget, b"pos", widget.pos(), home, dur, curve)
+        )
+        group.addAnimation(
+            make_property_animation(
+                effect, b"opacity", 0.0, 1.0, dur, RavenCurve.OUT_CUBIC
+            )
+        )
+        self._transitioning = True
+        self._anim_group = group
+        group.finished.connect(self._settle)
+        group.start()
+
+    def _settle(self) -> None:
+        """After a transition: drop to a clean rebuild of the final state."""
+        self._transitioning = False
+        self._anim_group = None
+        self._rendered = None
+        self._render()
 
     def _card(self, width: int, height: int) -> VerticalContainer:
         """A card sized to its contents.
@@ -411,7 +475,7 @@ class AgentHud(RavenApp):
             height += OVERFLOW_LINE_HEIGHT + CARD_SPACING
         return height + CARD_MARGIN_BOTTOM
 
-    def _draw_count(self) -> None:
+    def _draw_count(self):
         """The resting count: a number in a ring, in a card of its own."""
         height = (
             CARD_MARGIN_TOP
@@ -462,12 +526,14 @@ class AgentHud(RavenApp):
             APP_SIZE - COUNT_CARD_WIDTH - EDGE_MARGIN,
             (APP_SIZE - height) // 2,
         )
+        return card
 
-    def _draw_panel(self) -> None:
+    def _draw_panel(self):
         """A titled list, composed the way the Art Studio example composes one."""
         height = self._panel_height()
         frame = self._card(CARD_WIDTH, height)
         self.app.add(frame, FRAME_INSET, (APP_SIZE - height) // 2)
+        self._panel_frame = frame
         frame.add(
             TextBox(
                 PANEL_TITLE,
@@ -489,13 +555,16 @@ class AgentHud(RavenApp):
                     width=ROW_WIDTH,
                 )
             )
+        return frame
 
-    def _draw_idle_dot(self) -> None:
+    def _draw_idle_dot(self):
+        dot = _dot(IDLE_DOT_SIZE, IDLE_COLOR)
         self.app.add(
-            _dot(IDLE_DOT_SIZE, IDLE_COLOR),
+            dot,
             APP_SIZE - IDLE_DOT_SIZE - EDGE_MARGIN,
             APP_SIZE // 2,
         )
+        return dot
 
     def _draw_incomplete_dot(self) -> None:
         """A separate marker so a calm display and a broken one never look

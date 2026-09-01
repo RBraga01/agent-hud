@@ -142,3 +142,17 @@ def test_rejects_a_poll_interval_that_is_not_a_finite_number(value):
     # then break when converted to integer milliseconds for the timer.
     with pytest.raises(ValueError, match="AGENT_HUD_POLL_SECONDS"):
         load_settings(env={"AGENT_HUD_POLL_SECONDS": value})
+
+
+def test_animations_are_on_by_default():
+    assert load_settings(env={}).animations is True
+
+
+@pytest.mark.parametrize("value", ["0", "off", "OFF", "false", "no"])
+def test_animations_can_be_switched_off(value):
+    assert load_settings(env={"AGENT_HUD_ANIMATIONS": value}).animations is False
+
+
+@pytest.mark.parametrize("value", ["1", "on", "true", "yes", "anything"])
+def test_animations_stay_on_for_anything_else(value):
+    assert load_settings(env={"AGENT_HUD_ANIMATIONS": value}).animations is True

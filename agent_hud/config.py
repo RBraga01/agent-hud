@@ -24,6 +24,7 @@ _GATEWAY_URL_VAR = "AGENT_HUD_GATEWAY_URL"
 _POLL_SECONDS_VAR = "AGENT_HUD_POLL_SECONDS"
 _FEEDERS_VAR = "AGENT_HUD_FEEDERS"
 _SHOW_PROMPTS_VAR = "AGENT_HUD_SHOW_PROMPTS"
+_ANIMATIONS_VAR = "AGENT_HUD_ANIMATIONS"
 _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
 _CLAUDE_STATE_VAR = "AGENT_HUD_CLAUDE_STATE"
 _CODEX_DIR_VAR = "AGENT_HUD_CODEX_DIR"
@@ -49,6 +50,9 @@ class Settings:
     poll_seconds: float
     feeders: tuple[str, ...] = DEFAULT_FEEDERS
     show_prompts: bool = False
+    # Slide-and-fade transitions between screen states. On by default;
+    # turn off for a lower-motion display or to save simulator frames.
+    animations: bool = True
     claude_projects: Path = field(
         default_factory=lambda: Path.home() / ".claude" / "projects"
     )
@@ -127,6 +131,14 @@ def _read_show_prompts(env: Mapping[str, str]) -> bool:
     return env.get(_SHOW_PROMPTS_VAR, "").strip().lower() in _TRUE_WORDS
 
 
+def _read_animations(env: Mapping[str, str]) -> bool:
+    """On unless clearly switched off."""
+    raw = env.get(_ANIMATIONS_VAR)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "off", "false", "no"}
+
+
 def _read_claude_projects(env: Mapping[str, str]) -> Path:
     raw = env.get(_CLAUDE_PROJECTS_VAR)
     if raw is None or not raw.strip():
@@ -165,6 +177,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         poll_seconds=_read_poll_seconds(source),
         feeders=_read_feeders(source),
         show_prompts=_read_show_prompts(source),
+        animations=_read_animations(source),
         claude_projects=_read_claude_projects(source),
         claude_state=_read_claude_state(source),
         codex_dir=_read_codex_dir(source),

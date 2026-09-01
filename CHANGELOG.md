@@ -20,6 +20,12 @@ application credentials and a device, neither of which this project has yet.
   accounts; a reader for live Claude Code sessions; and a file reader for
   driving the display by hand.
 - The gateway asks its feeders on every request, so nothing is ever stale.
+- Slide-and-fade transitions between the dot, the count and the detail
+  card. The card unfolds from where the count sits (an OUT_BACK spring),
+  rather than popping in. The launch render and the first data render are
+  instant; motion starts once the app is up. `AGENT_HUD_ANIMATIONS=off`
+  disables it. Decision logic and geometry are in the framework-free
+  agent_hud/transitions.py.
 - `codex` feeder — recent Codex CLI sessions from `~/.codex`, using the
   session index for titles and the session log's tail for whose turn it
   is. Reads event types only, never message bodies. `feeders/codex.py` is

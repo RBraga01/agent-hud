@@ -21,6 +21,10 @@ Four states:
 | Opened | Each item in its own row, with a line counting what did not fit |
 | Cannot reach the gateway | The last known count stays, with an amber dot below it |
 
+The screen moves between these with short slide-and-fade transitions &mdash; the card unfolds from where the count sits, rather than popping in. `AGENT_HUD_ANIMATIONS=off` makes every change instant.
+
+![Opening and closing the detail card](docs/transition.gif)
+
 ## What you need
 
 - **Python 3.10 or later** for development. Deploying to real glasses needs exactly **3.12.12** — the Raven tooling checks the version string and refuses anything else.
@@ -89,6 +93,7 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_CODEX_DIR` | `~/.codex` | The Codex CLI directory, for the `codex` feeder |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
+| `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between states. `off` for a lower-motion display |
 
 They are read straight from the environment. Set them before running:
 

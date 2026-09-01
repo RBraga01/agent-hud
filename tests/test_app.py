@@ -23,7 +23,10 @@ from PySide6.QtCore import QEvent
 
 from agent_hud.app import AgentHud
 
-SETTINGS = Settings(gateway_url="http://127.0.0.1:9/items", poll_seconds=3.0)
+# animations off: these tests check screen logic, not the Qt timeline.
+SETTINGS = Settings(
+    gateway_url="http://127.0.0.1:9/items", poll_seconds=3.0, animations=False
+)
 
 WAITING = Item(id="a", title="Claude Code", detail="approve deploy?", needs_you=True)
 ALSO_WAITING = Item(id="b", title="PR 38", detail="review requested", needs_you=True)
@@ -396,3 +399,100 @@ def test_the_guard_clears_so_later_polls_still_happen(qapp):
             time.sleep(0.01)
 
     assert len(calls) == 3
+
+
+# --- animated transitions -------------------------------------------------
+
+ANIM = Settings(
+    gateway_url="http://127.0.0.1:9/items", poll_seconds=3.0, animations=True
+)
+
+
+def make_animated_hud(qapp, items=()):
+    result = FetchResult(items=list(items), ok=True)
+    hud = AgentHud(
+        settings=ANIM,
+        fetch=lambda url, timeout: result,
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    return hud
+
+
+def drain(qapp, hud, deadline_s=3.0):
+    """Pump the loop until any running transition has settled."""
+    end = time.monotonic() + deadline_s
+    while hud._transitioning and time.monotonic() < end:
+        qapp.processEvents()
+        time.sleep(0.01)
+    pump(qapp)
+
+
+def test_going_from_idle_to_count_runs_a_transition(qapp):
+    hud = make_animated_hud(qapp, items=[BUSY])   # idle
+    hud.refresh_now()                             # first data render: instant
+    pump(qapp)
+    assert hud.is_idle
+    assert hud._transitioning is False
+
+    hud.apply(FetchResult(items=[WAITING], ok=True))  # -> count, animates
+    assert hud._transitioning is True
+
+    drain(qapp, hud)
+    assert hud._transitioning is False
+    assert hud.count_text == "1"
+
+
+def test_opening_the_panel_runs_a_transition_and_settles(qapp):
+    hud = make_animated_hud(qapp, items=[WAITING, ALSO_WAITING])
+    hud.refresh_now()
+    pump(qapp)
+    # A second data render, so the "first render instant" rule is spent.
+    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+    pump(qapp)
+
+    hud.open_panel()
+    assert hud._transitioning is True
+
+    drain(qapp, hud)
+    assert hud.is_panel_open is True
+    assert hud.panel_lines == [
+        ("Claude Code", "approve deploy?"),
+        ("PR 38", "review requested"),
+    ]
+
+
+def test_a_data_change_of_the_same_kind_does_not_animate(qapp):
+    hud = make_animated_hud(qapp, items=[WAITING])
+    hud.refresh_now()
+    pump(qapp)
+    hud.apply(FetchResult(items=[WAITING], ok=True))  # spend the first-render rule
+    pump(qapp)
+
+    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))  # still count
+
+    assert hud._transitioning is False
+    assert hud.count_text == "2"
+
+
+def test_the_launch_and_first_data_render_are_instant(qapp):
+    hud = make_animated_hud(qapp, items=[WAITING])  # would be idle->count
+    hud.refresh_now()
+
+    assert hud._transitioning is False
+    assert hud.count_text == "1"
+
+
+def test_repeated_open_and_close_with_animation_never_crashes(qapp):
+    hud = make_animated_hud(qapp, items=[WAITING, ALSO_WAITING])
+    hud.refresh_now()
+    pump(qapp)
+
+    for _ in range(3):
+        hud.open_panel()
+        drain(qapp, hud)
+        hud.tick_gaze(gaze_position=(0, 0), now=10_000.0)
+        drain(qapp, hud)
+
+    assert hud.is_panel_open is False

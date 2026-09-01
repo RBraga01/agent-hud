@@ -20,6 +20,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `agent_hud/config.py` | no | settings from the environment |
 | `agent_hud/client.py` | no | fetching from the gateway |
 | `agent_hud/interaction.py` | no | when the detail panel is showing |
+| `agent_hud/transitions.py` | no | which animation plays on a state change, and its geometry |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
@@ -74,6 +75,7 @@ All of these cost real time. None are in Raven's documentation.
 | `AsyncRunner.run(fn, on_complete=…)` | The callback takes **no arguments** and `fn`'s return value is discarded. The documentation says otherwise and following it raises. Carry results on the instance. |
 | A clickable `Icon` | Draws no outline until the dwell starts. It needs a bordered container behind it to have any visible shape at rest. |
 | Sizing a `VerticalContainer` to exactly fit | The box layout compresses children to make room for text's real height. Leave slack or things get clipped. |
+| Animating `b"geometry"` on a framework widget | It has a fixed size (`setFixedSize`), which `QPropertyAnimation` on geometry fights. `_animate_in` animates `b"pos"` plus a `QGraphicsOpacityEffect` instead — a slide-and-fade, not a scale. |
 
 ## Testing
 
@@ -86,6 +88,7 @@ Screen tests skip when the framework is absent. That is intended.
 
 Two rules learned the hard way:
 
+0. **Transitions must settle to a clean rebuild.** `_animate_in` builds the new tree, animates it in, then `_settle` forces a plain `_render()`. A test that changes state under `animations=True` must pump the loop until `hud._transitioning` is `False` (`drain()` in `test_app.py`), or set `animations=False`.
 1. **`processEvents()` does not deliver `DeferredDelete` events.** Use the `pump()` helper in `tests/test_app.py`, which also calls `sendPostedEvents(None, QEvent.Type.DeferredDelete)`. Without it, widgets Qt has destroyed still look alive and a whole class of crash stays hidden until the app is run for real.
 2. **A passing suite is not evidence the app runs.** Launch the simulator before claiming anything works.
 
