@@ -1,9 +1,39 @@
-.claude/worktrees/
+# Local development and agent tooling
+.claude/
 .agent-sync/
+skills/
+hooks/
+scripts/
+templates/
+INIT.md
+TEAM.md
+.metrics/
+.sessions/
+
+# Raven Framework — proprietary, installed separately.
+# Its licence grants no right to redistribute. Never commit it here.
 raven-framework/
+
+# Secrets and local settings
+.env
+.env.local
+agents.local.json
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+.mypy_cache/
 .venv/
 venv/
-.env
-agents.local.json
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
