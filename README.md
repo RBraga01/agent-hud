@@ -39,7 +39,24 @@ This is the rule the whole design is built around.
 
 There is no setting to turn any of that off. A display you can trigger by looking at the wrong thing is not one you can wear.
 
-> **This version cannot send yet.** You can see everything, walk into any task, and choose an action, but pressing OK lands on a screen that tells you plainly that nothing was sent. The part that answers your agents is the next piece of work. The app will never claim to have done something it did not do.
+## What happens when you press OK
+
+![What the glasses say after you answer, low light](docs/sending_night.png)
+
+This is the only moment anything leaves the glasses, and the wording is deliberate.
+
+**"Sent" means the gateway accepted your answer.** Nothing more. It does not mean the deployment happened, the tests reran, or the pull request merged — nobody has confirmed any of that yet. When it does happen, the task changes in the list. The screen will never say "Approved" or "Done" for something it cannot see.
+
+**If it could not be reached, it says so, and offers to try again.** Retrying is safe. Every answer carries a request id, and it stays the same across retries, so a gateway that did receive the first attempt recognises the second instead of approving your deployment twice.
+
+**If the task changed while you were deciding, nothing is sent at all.** Every answer also carries the `revision` you were looking at. A gateway that has moved past it refuses the answer and the screen tells you to read the task again. You can never approve a description that changed behind your back.
+
+Two protections, guarding two different things:
+
+| | Stops |
+|---|---|
+| `revision` | Answering a version of a task that no longer exists |
+| `request_id` | The same answer being carried out twice |
 
 ## What you need
 
@@ -100,7 +117,7 @@ All settings are optional and read from the environment. Nothing is written into
 
 | Variable | Default | What it does |
 |---|---|---|
-| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the task list |
+| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the task list. Answers go back to the same server, at `/tasks/{id}/feedback` |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
 | `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |

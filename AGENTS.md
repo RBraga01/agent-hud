@@ -19,6 +19,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `agent_hud/tasks.py` | no | the task contract and its parser |
 | `agent_hud/config.py` | no | settings from the environment |
 | `agent_hud/client.py` | no | fetching from the gateway |
+| `agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
 | `agent_hud/navigation.py` | no | which of the six screens you are on, and what moves you |
 | `agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
@@ -28,6 +29,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `feeders/__init__.py` | no | `collect()` runs the chosen feeders; `file_items()` reads a hand-edited file and raises `FileFeederError` when it exists but is not JSON |
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
+| `stub_server/policy.py` | no | what that gateway will accept, and what it does about it |
 | `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
 | `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
 
@@ -61,6 +63,18 @@ The second rule, and it is not negotiable or configurable.
 The consequence for the code: **anything pressable must be a real `Button`**. Building a "button" out of an outlined `Container` would mean re-implementing activation from gaze ourselves, which is exactly the forbidden thing wearing a different hat.
 
 **Selecting is not sending.** Choosing an action opens the confirmation screen. `navigation.advance` is a pure function and could not send anything if it wanted to; only `app.py`, and only after `CONFIRM`, may talk to the gateway.
+
+## Never claim what you cannot see
+
+The third rule, and it governs every word on the result screen.
+
+`SendOutcome.ACCEPTED` means **the gateway took the request**. It does not mean the deployment happened. The screen therefore says "Sent", never "Approved", "Deployed" or "Done" — those would be claims about an outcome nobody has confirmed, and a wearer who believes one and stops paying attention is worse off than one who was told the truth. When the work really is done, the task changes in the list, and that is what says so.
+
+Anything unrecognised, and every 5xx, becomes `UNREACHABLE` rather than a failure or a success. It is the only outcome that leads to a retry rather than a claim, so it is the only safe default.
+
+Two protections travel with every answer and guard different things. **`revision`** stops someone answering a version of a task that has moved on; the gateway refuses it with 409 and the wearer is sent back to read it again. **`request_id`** is stable across retries, so an attempt that reached the gateway but lost its answer is recognised rather than carried out twice. Retry is offered for `UNREACHABLE` only: a refusal or a stale answer means the gateway heard us and said no, and asking again unchanged is just asking twice.
+
+The gateway checks every incoming answer against the actions **it** would have offered for that task, never against what the request claims. An agent cannot put an executable button on someone's face by naming one in a payload.
 
 ## What the framework actually gives you
 
