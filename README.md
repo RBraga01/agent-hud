@@ -21,7 +21,7 @@ Four states:
 | Nothing waiting | One small bright dot in the right periphery. Nothing else. |
 | Something waiting | A card holding a number, and the words "need you" |
 | Opened | Each item in its own row, with a line counting what did not fit |
-| Cannot reach the gateway | The last known count stays, with an amber dot below it |
+| Gateway unreachable, or the list came back with holes | The last known count stays, with an amber dot below it |
 
 The screen moves between these with short slide-and-fade transitions &mdash; the card unfolds from where the count sits, rather than popping in. `AGENT_HUD_ANIMATIONS=off` makes every change instant.
 
@@ -199,6 +199,8 @@ The app knows nothing about Codex, GitHub, or any other tool. It receives a list
 Four fields, nothing else. `title` and `detail` are already-written text — the app draws them, it never composes sentences. The number in the corner is how many items have `needs_you` set.
 
 Parsing is strict. An entry that does not match this shape exactly is dropped rather than guessed at, because guessing would either hide work from you or invent work that is not there.
+
+It is also bounded. At most 100 items are kept, `title` is capped at 64 characters and `detail` at 256, and a response over 256 KB is refused unread. Anything trimmed shows the same amber "incomplete" marker a dropped entry does — a shortened list is not the whole list.
 
 ## Layout
 

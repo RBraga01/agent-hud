@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from agent_hud.client import fetch_items
+from agent_hud.client import MAX_RESPONSE_BYTES, fetch_items
+from agent_hud.items import MAX_TITLE
 from stub_server.server import ITEMS_PATH, create_server
 
 SAMPLE = {
@@ -225,3 +226,72 @@ def test_a_clean_response_discards_nothing(stub_url):
     url, _ = stub_url
 
     assert fetch_items(url).dropped == 0
+
+
+# --- caps on the response -------------------------------------------
+
+
+def _padded_body(pad_bytes: int) -> bytes:
+    """A valid items payload inflated to a known size with an ignored key."""
+    payload = dict(SAMPLE)
+    payload["_pad"] = "x" * pad_bytes
+    return json.dumps(payload).encode()
+
+
+def _serve_body(body: bytes):
+    class Fixed(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    return _serve(Fixed)
+
+
+def test_rejects_a_response_over_the_size_limit():
+    body = _padded_body(MAX_RESPONSE_BYTES + 50_000)
+    assert len(body) > MAX_RESPONSE_BYTES
+    base, server, thread = _serve_body(body)
+    try:
+        result = fetch_items(f"{base}/items")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result.ok is False
+    assert result.items == []
+    assert result.reason != ""
+
+
+def test_accepts_a_response_just_under_the_size_limit():
+    body = _padded_body(MAX_RESPONSE_BYTES - 20_000)
+    assert len(body) < MAX_RESPONSE_BYTES
+    base, server, thread = _serve_body(body)
+    try:
+        result = fetch_items(f"{base}/items")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result.ok is True
+    assert [item.id for item in result.items] == ["a", "b"]
+
+
+def test_a_long_title_from_the_gateway_comes_back_truncated_and_incomplete(stub_url):
+    url, state = stub_url
+    state["items"] = [
+        {"id": "a", "title": "T" * 120, "detail": "d", "needs_you": True}
+    ]
+
+    result = fetch_items(url)
+
+    assert result.ok is True
+    assert len(result.items[0].title) == MAX_TITLE
+    assert result.truncated == 1

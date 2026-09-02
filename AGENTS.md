@@ -43,8 +43,9 @@ The whole product is "you can trust that nothing on screen means nothing needs y
 | A list, with items | Show them. |
 | Not a list at all, or unreachable | Keep the last known list, and mark it incomplete. |
 | A list where some entries were malformed | Show the good ones, and mark it incomplete. |
+| More than `MAX_ITEMS`, or an entry's text over length | Keep the first `MAX_ITEMS`, cut over-long `title`/`detail` to fit, and mark it incomplete. A response over `MAX_RESPONSE_BYTES` is refused unread and treated as unreachable. |
 
-`parse_payload` reports `valid` and `dropped` separately for this reason, and `AgentHud.is_complete` is what drives the amber marker. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
+`parse_payload` reports `valid`, `dropped` and `truncated` separately for this reason, and `AgentHud.is_complete` (online **and** `dropped == 0` **and** `truncated == 0`) is what drives the amber marker. The caps live at the contract boundary — `MAX_RESPONSE_BYTES` in `client.py`, `MAX_ITEMS` / `MAX_TITLE` / `MAX_DETAIL` in `items.py` — so every feeder inherits them. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
 
 ## Only one request at a time
 

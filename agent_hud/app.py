@@ -168,6 +168,7 @@ class AgentHud(RavenApp):
         self._items: list[Item] = []
         self._online = True
         self._dropped = 0
+        self._truncated = 0
         self._fetching = False
         self._panel = DetailPanel(grace_seconds=DEFAULT_GRACE_SECONDS)
 
@@ -245,12 +246,12 @@ class AgentHud(RavenApp):
     def is_complete(self) -> bool:
         """True when the list on screen can be trusted to be the whole list.
 
-        False either because the gateway could not be reached or read, or
-        because it answered with entries that had to be discarded. Both
-        mean the same thing to the wearer: what you are looking at may be
-        missing something.
+        False because the gateway could not be reached or read, because it
+        answered with entries that had to be discarded, or because an
+        entry's text had to be cut to fit. All mean the same thing to the
+        wearer: what you are looking at may be missing something.
         """
-        return self._online and self._dropped == 0
+        return self._online and self._dropped == 0 and self._truncated == 0
 
     @property
     def is_fetching(self) -> bool:
@@ -326,6 +327,7 @@ class AgentHud(RavenApp):
         """
         self._online = result.ok
         self._dropped = result.dropped if result.ok else 0
+        self._truncated = result.truncated if result.ok else 0
         if result.ok:
             self._items = result.items
 

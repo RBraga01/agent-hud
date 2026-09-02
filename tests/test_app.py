@@ -321,6 +321,17 @@ def test_recovering_from_discarded_entries_clears_the_warning(qapp):
     assert hud.is_complete is True
 
 
+def test_a_response_with_truncated_text_is_not_complete(qapp):
+    # The entry is shown, but part of its text was cut to fit the cap.
+    # That is still a picture with a hole in it.
+    hud = make_hud(qapp, items=[WAITING])
+
+    hud.apply(FetchResult(items=[WAITING], ok=True, truncated=1))
+
+    assert hud.is_online is True
+    assert hud.is_complete is False
+
+
 def test_an_empty_list_from_a_healthy_gateway_really_means_idle(qapp):
     hud = make_hud(qapp, items=[WAITING])
 

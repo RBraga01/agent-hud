@@ -10,7 +10,15 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from agent_hud.items import Item, needs_you_count, parse_items, parse_payload
+from agent_hud.items import (
+    MAX_DETAIL,
+    MAX_ITEMS,
+    MAX_TITLE,
+    Item,
+    needs_you_count,
+    parse_items,
+    parse_payload,
+)
 
 VALID_PAYLOAD = {
     "items": [
@@ -241,3 +249,93 @@ def test_a_payload_of_entirely_bad_entries_is_still_a_valid_payload():
 def test_parse_items_still_returns_a_plain_list():
     # The convenience wrapper the feeders use to check their own shape.
     assert len(parse_items(VALID_PAYLOAD)) == 3
+
+
+# --- caps on what the gateway can send -------------------------------
+#
+# The response is otherwise unbounded. On a wearable an oversized list, or
+# one entry with a page of text in it, could make the display unusable.
+# The contract caps both, and a capped list is not a whole list, so it
+# shows the same incomplete marker a discarded entry does.
+
+
+def _entry(**over):
+    base = {"id": "x", "title": "T", "detail": "d", "needs_you": False}
+    base.update(over)
+    return base
+
+
+def test_keeps_at_most_the_item_limit_and_counts_the_rest_as_dropped():
+    payload = {"items": [_entry(id=f"i{n}") for n in range(MAX_ITEMS + 25)]}
+
+    result = parse_payload(payload)
+
+    assert result.valid is True
+    assert len(result.items) == MAX_ITEMS
+    assert result.dropped == 25
+    # The first ones are the ones kept.
+    assert result.items[0].id == "i0"
+
+
+def test_a_payload_exactly_at_the_item_limit_is_untouched():
+    payload = {"items": [_entry(id=f"i{n}") for n in range(MAX_ITEMS)]}
+
+    result = parse_payload(payload)
+
+    assert len(result.items) == MAX_ITEMS
+    assert result.dropped == 0
+    assert result.truncated == 0
+
+
+def test_a_title_over_the_limit_is_truncated_and_marks_the_payload_incomplete():
+    payload = {"items": [_entry(title="T" * 200)]}
+
+    result = parse_payload(payload)
+
+    assert len(result.items) == 1
+    assert len(result.items[0].title) == MAX_TITLE
+    assert result.items[0].title.endswith("...")
+    assert result.truncated == 1
+
+
+def test_a_detail_over_the_limit_is_truncated():
+    payload = {"items": [_entry(detail="d" * 900)]}
+
+    result = parse_payload(payload)
+
+    assert len(result.items[0].detail) == MAX_DETAIL
+    assert result.items[0].detail.endswith("...")
+    assert result.truncated == 1
+
+
+def test_text_exactly_at_the_limit_is_left_alone():
+    payload = {
+        "items": [_entry(title="T" * MAX_TITLE, detail="d" * MAX_DETAIL)]
+    }
+
+    result = parse_payload(payload)
+
+    assert result.items[0].title == "T" * MAX_TITLE
+    assert result.items[0].detail == "d" * MAX_DETAIL
+    assert result.truncated == 0
+
+
+def test_within_limits_nothing_is_truncated():
+    result = parse_payload(VALID_PAYLOAD)
+
+    assert result.truncated == 0
+
+
+def test_one_truncated_entry_among_several_is_counted_once():
+    payload = {
+        "items": [
+            _entry(id="a"),
+            _entry(id="b", detail="d" * 900),
+            _entry(id="c"),
+        ]
+    }
+
+    result = parse_payload(payload)
+
+    assert len(result.items) == 3
+    assert result.truncated == 1
