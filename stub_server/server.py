@@ -6,7 +6,8 @@ the glasses show is never stale and there is only one thing to run.
 Which feeders it uses comes from the environment. The default is invented
 data, which needs no accounts and reveals nothing personal. See the README.
 
-It also takes answers back, at ``POST /tasks/{id}/feedback``. What it is
+It serves the wearer's preferences at ``GET /settings``, and takes answers
+back at ``POST /tasks/{id}/feedback``. What it is
 willing to accept lives in ``policy.py``, deliberately apart from the
 plumbing here.
 
@@ -23,9 +24,12 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from agent_hud.preferences import Preferences, to_payload
+
 from .policy import Policy
 
 TASKS_PATH = "/tasks"
+SETTINGS_PATH = "/settings"
 FEEDBACK_SUFFIX = "/feedback"
 
 # The most a feedback request may be. The glasses send a few hundred
@@ -44,7 +48,13 @@ class _TasksHandler(BaseHTTPRequestHandler):
     data_path: Path
 
     def do_GET(self) -> None:
-        if self.path.split("?")[0] != TASKS_PATH:
+        path = self.path.split("?")[0]
+
+        if path == SETTINGS_PATH:
+            self._respond(200, to_payload(self.server.preferences))
+            return
+
+        if path != TASKS_PATH:
             self._respond(404, {"error": "not found"})
             return
 
@@ -117,6 +127,10 @@ class _TasksServer(ThreadingHTTPServer):
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
+        # The gateway owns the wearer's preferences; the glasses cache
+        # them. The Control app is what changes them, so this development
+        # gateway simply serves a fixed, sensible set.
+        self.preferences = Preferences(revision=1)
         super().__init__(address, _TasksHandler)
 
 

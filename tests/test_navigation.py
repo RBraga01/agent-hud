@@ -367,3 +367,55 @@ def test_leaving_the_result_screen_is_the_wearers_choice(tasks):
     nav = Nav(screen=Screen.RESULT, task_id="t1", action_id="approve")
 
     assert advance(nav, Event.BACK, tasks).screen is Screen.TASK_LIST
+
+
+# --- when nobody is answering -----------------------------------------
+
+
+def test_a_couple_of_missed_polls_change_nothing(tasks):
+    from agent_hud.navigation import nav_for_connection
+
+    nav = Nav(screen=Screen.ATTENTION)
+
+    assert nav_for_connection(nav, failures=2) == nav
+
+
+def test_a_gateway_that_is_really_gone_takes_over_the_resting_screen(tasks):
+    from agent_hud.navigation import OFFLINE_PATIENCE, nav_for_connection
+
+    nav = Nav(screen=Screen.ATTENTION)
+
+    result = nav_for_connection(nav, failures=OFFLINE_PATIENCE)
+
+    assert result.screen is Screen.UNAVAILABLE
+
+
+def test_someone_part_way_through_answering_is_left_alone(tasks):
+    from agent_hud.navigation import OFFLINE_PATIENCE, nav_for_connection
+
+    for screen in (Screen.TASK_DETAIL, Screen.ACTION_MENU, Screen.CONFIRMATION):
+        nav = Nav(screen=screen, task_id="t1")
+        assert nav_for_connection(nav, failures=OFFLINE_PATIENCE * 5) == nav
+
+
+def test_the_result_screen_is_not_taken_over_either(tasks):
+    from agent_hud.navigation import OFFLINE_PATIENCE, nav_for_connection
+
+    nav = Nav(screen=Screen.RESULT, task_id="t1")
+
+    assert nav_for_connection(nav, failures=OFFLINE_PATIENCE * 5) == nav
+
+
+def test_the_gateway_answering_again_leaves_the_unavailable_screen(tasks):
+    from agent_hud.navigation import nav_for_connection
+
+    nav = Nav(screen=Screen.UNAVAILABLE)
+
+    assert nav_for_connection(nav, failures=0).screen is Screen.IDLE
+
+
+def test_pressing_retry_does_not_pretend_anything_happened(tasks):
+    # The screen stays until an answer actually arrives.
+    nav = Nav(screen=Screen.UNAVAILABLE)
+
+    assert advance(nav, Event.ACTIVATE, tasks) == nav

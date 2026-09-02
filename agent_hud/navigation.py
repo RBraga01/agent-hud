@@ -46,6 +46,7 @@ class Screen(str, Enum):
     ACTION_MENU = "action_menu"
     CONFIRMATION = "confirmation"
     RESULT = "result"
+    UNAVAILABLE = "unavailable"
 
 
 class Event(str, Enum):
@@ -85,6 +86,37 @@ class Nav:
     page: int = 0
     revision: int | None = None
     stale: bool = False
+
+
+# How many polls in a row must fail before the display stops showing the
+# last known list and says the gateway is gone. A couple of missed polls
+# is a wobbly network; a dozen is a gateway that is not there, and
+# presenting stale work as current for ever would be its own kind of lie.
+OFFLINE_PATIENCE = 8
+
+
+def nav_for_connection(
+    nav: Nav, *, failures: int, patience: int = OFFLINE_PATIENCE
+) -> Nav:
+    """Move to, or away from, the unavailable screen.
+
+    Kept apart from ``nav_for_tasks`` because it answers a different
+    question: not "is what I am showing still true" but "is anybody
+    there". A wearer part way through answering something is left alone —
+    the unavailable screen only takes over from the resting screens,
+    where nothing is being lost by replacing them.
+    """
+    if failures >= patience:
+        if nav.screen in (Screen.IDLE, Screen.ATTENTION, Screen.TASK_LIST):
+            return replace(nav, screen=Screen.UNAVAILABLE, stale=False)
+        return nav
+
+    if nav.screen is Screen.UNAVAILABLE:
+        # It answered. Go back to whatever the tasks say we should show;
+        # nav_for_tasks sorts out which that is.
+        return replace(nav, screen=Screen.IDLE, stale=False)
+
+    return nav
 
 
 def page_count(task: Task | None) -> int:
@@ -195,6 +227,11 @@ def advance(
 
     if screen is Screen.RESULT and event in (Event.BACK, Event.ACTIVATE):
         return _to_list(nav)
+
+    if screen is Screen.UNAVAILABLE and event is Event.ACTIVATE:
+        # Retrying is the app's job; the screen stays put until an answer
+        # actually arrives, so nothing here pretends it has.
+        return nav
 
     return nav
 

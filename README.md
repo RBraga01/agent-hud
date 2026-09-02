@@ -58,6 +58,30 @@ Two protections, guarding two different things:
 | `revision` | Answering a version of a task that no longer exists |
 | `request_id` | The same answer being carried out twice |
 
+## More than one gateway
+
+You might have one at home and one at work. They hold different tasks, different credentials and different settings, and neither needs to know the other exists. There is no account joining them and no service in the middle — the glasses are the only thing aware of both.
+
+```bash
+AGENT_HUD_GATEWAYS="Home=http://127.0.0.1:8765/tasks;Work=https://work.example/tasks"
+AGENT_HUD_ACTIVE_GATEWAY=Home
+```
+
+**One is active at a time, and switching is always something you do.** If the active gateway goes quiet, the last known list stays up with the amber marker for a while — a wobbly network is not worth interrupting anyone over. Once it is clear nobody is there, the screen says so, names the gateway that has gone, and offers to try again or to switch to another one you have already paired.
+
+It will never switch on its own. Falling back from Work to Home would put one environment's tasks in front of you while you believed you were looking at the other's, which is worse than showing you nothing.
+
+## Settings live on the gateway
+
+Almost everything you can change belongs to the gateway rather than the glasses, for two practical reasons: a headset is a miserable place to change a setting, and Home and Work should be able to behave differently. The glasses read them, cache the last good copy, and apply them.
+
+Two things are deliberately not settings:
+
+- Two-step confirmation is always required.
+- **Gaze alone never activates anything.**
+
+You can choose *how* you activate a control — a double blink, or a dwell you hold, and how long that dwell is. You cannot choose to make looking at something enough. A gateway that asks for it is ignored, and a dwell short enough to be a glance is raised to the floor. It is not a setting anywhere in the code, and a test says so.
+
 ## What you need
 
 - **Python 3.10 or later** for development. Deploying to real glasses needs exactly **3.12.12** — the Raven tooling checks the version string and refuses anything else.
@@ -126,7 +150,9 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_CODEX_DIR` | `~/.codex` | The Codex CLI directory, for the `codex` feeder |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
-| `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between states. `off` for a lower-motion display |
+| `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between screens. `off` for a lower-motion display |
+| `AGENT_HUD_GATEWAYS` | — | More than one paired gateway, as `Home=url;Work=url`. Leave it unset if you only have one |
+| `AGENT_HUD_ACTIVE_GATEWAY` | first listed | Which paired gateway to start on |
 
 They are read straight from the environment. Set them before running:
 

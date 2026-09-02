@@ -48,6 +48,9 @@ _DEPTH = {
     "action_menu": 4,
     "confirmation": 5,
     "result": 6,
+    # Off to one side of the ladder rather than on it: arriving here is
+    # not going deeper into anything.
+    "unavailable": 1,
 }
 
 

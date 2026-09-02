@@ -289,3 +289,27 @@ def test_posting_somewhere_else_is_not_found(gateway):
         status = exc.code
 
     assert status == 404
+
+
+# --- the preferences it serves ----------------------------------------
+
+
+def test_it_serves_the_wearers_preferences(gateway):
+    from agent_hud.preferences import parse_preferences
+
+    base, _ = gateway
+    body = requests.get(f"{base}/settings", timeout=3).json()
+
+    prefs, accepted = parse_preferences(body)
+
+    assert accepted is True
+    assert prefs.revision >= 1
+
+
+def test_the_preferences_it_serves_never_ask_for_gaze_activation(gateway):
+    from agent_hud.preferences import ACTIVATION_MODES
+
+    base, _ = gateway
+    body = requests.get(f"{base}/settings", timeout=3).json()
+
+    assert body["interaction"]["mode"] in ACTIVATION_MODES

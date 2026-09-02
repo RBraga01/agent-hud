@@ -177,3 +177,32 @@ def test_the_gateway_root_is_taken_from_the_read_address(url, expected):
     settings = load_settings(env={"AGENT_HUD_GATEWAY_URL": url})
 
     assert settings.gateway_base == expected
+
+
+# --- more than one gateway --------------------------------------------
+
+
+def test_one_gateway_is_the_ordinary_case():
+    settings = load_settings(env={"AGENT_HUD_GATEWAY_URL": "https://gw.example/tasks"})
+
+    assert settings.active_gateway.url == "https://gw.example/tasks"
+    assert settings.gateways.has_alternatives is False
+
+
+def test_a_home_and_a_work_gateway_can_both_be_paired():
+    settings = load_settings(env={
+        "AGENT_HUD_GATEWAYS":
+            "Home=http://127.0.0.1:8765/tasks;Work=https://work.example/tasks",
+        "AGENT_HUD_ACTIVE_GATEWAY": "Work",
+    })
+
+    assert [g.name for g in settings.gateways.gateways] == ["Home", "Work"]
+    assert settings.active_gateway.name == "Work"
+
+
+def test_the_first_paired_gateway_is_used_when_none_is_named():
+    settings = load_settings(env={
+        "AGENT_HUD_GATEWAYS": "Home=http://a.example/tasks;Work=http://b.example/tasks",
+    })
+
+    assert settings.active_gateway.name == "Home"

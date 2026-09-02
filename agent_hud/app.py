@@ -36,7 +36,15 @@ from .feedback import (
     new_request_id,
     send_feedback,
 )
-from .navigation import Event, Nav, Screen, advance, nav_for_tasks
+from .navigation import (
+    Event,
+    Nav,
+    Screen,
+    advance,
+    nav_for_connection,
+    nav_for_tasks,
+)
+from .preferences import Preferences, parse_preferences
 from .screens import (
     SendState,
     build_action_menu,
@@ -47,6 +55,7 @@ from .screens import (
     build_task_list,
 )
 from .screens import style as s
+from .screens.unavailable import build_unavailable
 from .tasks import Task, find_task, needs_you_count
 from .transitions import (
     APP_SIZE,
@@ -129,6 +138,16 @@ class AgentHud(RavenApp):
         self._dropped = 0
         self._truncated = 0
         self._fetching = False
+        # Consecutive failed polls. A couple is a wobbly network; enough
+        # of them is a gateway that is not there, and the display stops
+        # presenting stale work as current.
+        self._failures = 0
+
+        # The wearer's own choices. The gateway owns them and the glasses
+        # cache the last good copy, so a gateway that stops answering does
+        # not also change how the display behaves.
+        self._preferences = Preferences()
+        self._gateways = self._settings.gateways
 
         # The answer in flight, if any. Kept on the instance so a redraw
         # cannot lose the request id a retry needs.
@@ -252,6 +271,17 @@ class AgentHud(RavenApp):
     def current_task(self) -> Task | None:
         """The task the wearer has open, if any."""
         return find_task(self._tasks, self._nav.task_id)
+
+    @property
+    def preferences(self) -> Preferences:
+        """What the wearer has chosen, as last read from the gateway."""
+        return self._preferences
+
+    @property
+    def gateway(self):
+        """The gateway in use."""
+        active = self._gateways.active
+        return active if active is not None else self._settings.active_gateway
 
     @property
     def send_state(self) -> SendState:
@@ -383,9 +413,13 @@ class AgentHud(RavenApp):
         if result.ok:
             self._tasks = result.tasks
 
-        # The only place a refresh may touch navigation, and it can only
-        # ever move the wearer to a shallower screen.
-        self._nav = nav_for_tasks(self._nav, self._tasks)
+        self._failures = 0 if result.ok else self._failures + 1
+
+        # The only two places a refresh may touch navigation, and neither
+        # can move the wearer deeper than they asked to go.
+        self._nav = nav_for_connection(self._nav, failures=self._failures)
+        if self._nav.screen is not Screen.UNAVAILABLE:
+            self._nav = nav_for_tasks(self._nav, self._tasks)
 
         self._render()
         # From here on, state changes animate. The launch render and this
@@ -400,7 +434,7 @@ class AgentHud(RavenApp):
         tests, where a synchronous fetch against a local stub is what the
         assertions expect.
         """
-        self.apply(self._fetch(self._settings.gateway_url, DEFAULT_TIMEOUT_SECONDS))
+        self.apply(self._fetch(self.gateway.url, DEFAULT_TIMEOUT_SECONDS))
 
     # -- drawing --------------------------------------------------------
 
@@ -417,6 +451,8 @@ class AgentHud(RavenApp):
             self.is_complete,
             self._send_state.value,
             self._send_reason,
+            self.gateway.name,
+            self._fetching if self._nav.screen is Screen.UNAVAILABLE else False,
             None if task is None else (task.revision, task.title, task.summary),
             tuple((t.id, t.source, t.summary) for t in self.waiting),
         )
@@ -475,6 +511,16 @@ class AgentHud(RavenApp):
             top = self._draw_confirmation()
         elif screen is Screen.RESULT:
             top = self._draw_result()
+        elif screen is Screen.UNAVAILABLE:
+            top = self._place(
+                build_unavailable(
+                    self.gateway,
+                    others=self._gateways.others(),
+                    retrying=self._fetching,
+                    on_retry=self.retry_gateway,
+                    on_switch=self.switch_gateway,
+                )
+            )
 
         if not self.is_complete:
             self._draw_incomplete_dot()
@@ -645,10 +691,10 @@ class AgentHud(RavenApp):
             return
         self._fetching = True
 
+        url = self.gateway.url
+
         def work() -> None:
-            self._pending = self._fetch(
-                self._settings.gateway_url, DEFAULT_TIMEOUT_SECONDS
-            )
+            self._pending = self._fetch(url, DEFAULT_TIMEOUT_SECONDS)
 
         # The completion callback takes no arguments and the worker's return
         # value is discarded — the framework's own documentation says
@@ -676,7 +722,7 @@ class AgentHud(RavenApp):
 
         def work() -> None:
             self._send_result = self._send(
-                self._settings.gateway_base, outgoing, DEFAULT_TIMEOUT_SECONDS
+                self.gateway.base, outgoing, DEFAULT_TIMEOUT_SECONDS
             )
 
         self._async.run(work, on_complete=self._apply_send_result)
@@ -697,6 +743,44 @@ class AgentHud(RavenApp):
         finally:
             self._sending = False
             self._render()
+
+    def apply_preferences(self, payload: object) -> None:
+        """Take a settings response from the gateway.
+
+        Anything unreadable leaves every choice exactly as it was, so a
+        gateway that starts talking nonsense cannot also change how the
+        display behaves.
+        """
+        preferences, accepted = parse_preferences(
+            payload, current=self._preferences
+        )
+        if not accepted:
+            return
+        self._preferences = preferences
+        self._animate = preferences.animations
+        self._render()
+
+    def switch_gateway(self, name: str) -> None:
+        """Use a different paired gateway. Only ever from a press.
+
+        The glasses never do this on their own. Falling back from Work to
+        Home would put one environment's tasks in front of someone who
+        believed they were looking at the other's.
+        """
+        switched = self._gateways.switch_to(name)
+        if switched == self._gateways:
+            return
+        self._gateways = switched
+        # Everything from the old gateway is now the wrong environment's.
+        self._tasks = []
+        self._failures = 0
+        self._nav = Nav(screen=Screen.IDLE)
+        self._render()
+        self._refresh_in_background()
+
+    def retry_gateway(self) -> None:
+        """Ask the gateway again, now, rather than waiting for the poll."""
+        self._refresh_in_background()
 
     def _tick_gaze_from_sensor(self) -> None:
         self.tick_gaze(gaze_position=self._gaze())

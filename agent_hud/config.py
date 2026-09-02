@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .gateways import Gateway, GatewayBook, parse_gateways
+
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8765/tasks"
 DEFAULT_POLL_SECONDS = 3.0
 
@@ -29,6 +31,8 @@ _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
 _CLAUDE_STATE_VAR = "AGENT_HUD_CLAUDE_STATE"
 _CODEX_DIR_VAR = "AGENT_HUD_CODEX_DIR"
 _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
+_GATEWAYS_VAR = "AGENT_HUD_GATEWAYS"
+_ACTIVE_GATEWAY_VAR = "AGENT_HUD_ACTIVE_GATEWAY"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -66,6 +70,21 @@ class Settings:
     # Extra generic folder names to drop when naming a project. Empty means
     # use the feeder's own list, which already covers the common ones.
     skip_path_words: tuple[str, ...] = ()
+    # Every paired gateway, and which one is in use. Empty means the
+    # single one named by gateway_url, which is the ordinary case.
+    gateways: GatewayBook = field(default_factory=GatewayBook)
+
+    @property
+    def active_gateway(self) -> Gateway:
+        """The gateway in use.
+
+        With nothing paired explicitly this is the single one named by
+        ``gateway_url``, which is what most people will ever have.
+        """
+        active = self.gateways.active
+        if active is not None:
+            return active
+        return Gateway(name="Gateway", url=self.gateway_url)
 
     @property
     def gateway_base(self) -> str:
@@ -181,6 +200,11 @@ def _read_skip_path_words(env: Mapping[str, str]) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
+def _read_gateways(env: Mapping[str, str]) -> GatewayBook:
+    raw = env.get(_GATEWAYS_VAR, "")
+    return parse_gateways(raw, env.get(_ACTIVE_GATEWAY_VAR))
+
+
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Build settings from the given environment, or the real one.
 
@@ -198,4 +222,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         claude_state=_read_claude_state(source),
         codex_dir=_read_codex_dir(source),
         skip_path_words=_read_skip_path_words(source),
+        gateways=_read_gateways(source),
     )

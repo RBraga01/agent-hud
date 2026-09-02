@@ -877,3 +877,192 @@ def test_the_display_does_not_freeze_while_an_answer_is_in_flight(qapp):
     finally:
         release.set()
         settle_send(qapp, hud)
+
+
+# --- when the gateway stops answering ---------------------------------
+
+from agent_hud.gateways import Gateway, GatewayBook  # noqa: E402
+from agent_hud.navigation import OFFLINE_PATIENCE  # noqa: E402
+from agent_hud.preferences import Preferences  # noqa: E402
+
+HOME = Gateway(name="Home", url="http://127.0.0.1:9/tasks")
+WORK = Gateway(name="Work", url="http://127.0.0.2:9/tasks")
+PAIRED = Settings(
+    gateway_url=HOME.url,
+    poll_seconds=3.0,
+    animations=False,
+    gateways=GatewayBook(gateways=(HOME, WORK), active_name="Home"),
+)
+
+
+def go_offline(qapp, hud, times=OFFLINE_PATIENCE):
+    for _ in range(times):
+        hud.apply(FetchResult(tasks=[], ok=False, reason="down"))
+        pump(qapp)
+    return hud
+
+
+def test_a_wobbly_network_does_not_interrupt_anyone(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    go_offline(qapp, hud, times=2)
+
+    assert hud.screen is Screen.ATTENTION
+    assert hud.is_complete is False  # but the amber marker is showing
+
+
+def test_a_gateway_that_is_really_gone_is_said_out_loud(qapp):
+    # Presenting stale work as current for ever is its own kind of lie.
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    go_offline(qapp, hud)
+
+    assert hud.screen is Screen.UNAVAILABLE
+
+
+def test_someone_part_way_through_answering_is_not_interrupted(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+    open_detail(qapp, hud, "a")
+    hud.take_action()
+
+    go_offline(qapp, hud, times=OFFLINE_PATIENCE * 3)
+
+    assert hud.screen is Screen.ACTION_MENU
+
+
+def test_the_gateway_coming_back_returns_to_the_normal_screens(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+    go_offline(qapp, hud)
+
+    hud.apply(FetchResult(tasks=[WAITING], ok=True))
+    pump(qapp)
+
+    assert hud.screen is Screen.ATTENTION
+
+
+def test_the_glasses_never_switch_gateway_on_their_own(qapp):
+    """The rule this whole area exists for.
+
+    Falling back from Work to Home would put one environment's tasks in
+    front of somebody who believed they were looking at the other's.
+    """
+    result = FetchResult(tasks=[], ok=False, reason="down")
+    hud = AgentHud(
+        settings=PAIRED, fetch=lambda url, timeout: result, gaze=lambda: None,
+        clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+
+    go_offline(qapp, hud, times=OFFLINE_PATIENCE * 4)
+
+    assert hud.gateway.name == "Home", "it switched by itself"
+    assert hud.screen is Screen.UNAVAILABLE
+
+
+def test_switching_is_something_the_wearer_does(qapp):
+    result = FetchResult(tasks=[], ok=False, reason="down")
+    hud = AgentHud(
+        settings=PAIRED, fetch=lambda url, timeout: result, gaze=lambda: None,
+        clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+    go_offline(qapp, hud)
+
+    hud.switch_gateway("Work")
+    pump(qapp)
+
+    assert hud.gateway.name == "Work"
+
+
+def test_switching_throws_away_the_other_environments_tasks(qapp):
+    # Home's work must not still be on screen under Work's name.
+    hud = AgentHud(
+        settings=PAIRED,
+        fetch=lambda url, timeout: FetchResult(tasks=[WAITING], ok=True),
+        gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+    assert hud.count_text == "1"
+
+    hud.switch_gateway("Work")
+    pump(qapp)
+
+    assert hud.tasks == []
+
+
+def test_switching_to_something_unpaired_does_nothing(qapp):
+    hud = AgentHud(
+        settings=PAIRED,
+        fetch=lambda url, timeout: FetchResult(tasks=[WAITING], ok=True),
+        gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+
+    hud.switch_gateway("Somewhere else")
+
+    assert hud.gateway.name == "Home"
+
+
+def test_it_asks_the_active_gateway_not_a_fixed_address(qapp):
+    asked = []
+    hud = AgentHud(
+        settings=PAIRED,
+        fetch=lambda url, timeout: asked.append(url) or FetchResult(ok=True),
+        gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+    hud.switch_gateway("Work")
+    settle_send(qapp, hud)
+    while hud.is_fetching:
+        pump(qapp)
+        time.sleep(0.01)
+
+    assert asked[0] == HOME.url
+    assert WORK.url in asked
+
+
+# --- preferences the gateway owns -------------------------------------
+
+
+def test_preferences_arrive_from_the_gateway(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    hud.apply_preferences(
+        {"revision": 3, "interaction": {"mode": "dwell", "dwell_ms": 1100}}
+    )
+
+    assert hud.preferences.activation == "dwell"
+    assert hud.preferences.dwell_ms == 1100
+
+
+def test_a_gateway_talking_nonsense_changes_no_preference(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+    hud.apply_preferences({"revision": 3, "display": {"animations": False}})
+    before = hud.preferences
+
+    hud.apply_preferences("garbage")
+
+    assert hud.preferences == before
+
+
+def test_a_gateway_cannot_ask_for_gaze_activation(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    hud.apply_preferences({"revision": 4, "interaction": {"mode": "gaze"}})
+
+    assert hud.preferences.activation != "gaze"
+
+
+def test_turning_animations_off_from_the_gateway_takes_effect(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+    hud._animate = True
+
+    hud.apply_preferences({"revision": 5, "display": {"animations": False}})
+
+    assert hud._animate is False
+
+
+def test_preferences_start_at_something_sensible(qapp):
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    assert hud.preferences == Preferences()

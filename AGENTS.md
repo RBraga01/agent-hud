@@ -20,7 +20,9 @@ So every decision worth testing lives in a module that does not import the frame
 | `agent_hud/config.py` | no | settings from the environment |
 | `agent_hud/client.py` | no | fetching from the gateway |
 | `agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
-| `agent_hud/navigation.py` | no | which of the six screens you are on, and what moves you |
+| `agent_hud/navigation.py` | no | which screen you are on, and what moves you |
+| `agent_hud/preferences.py` | no | the settings the gateway owns and the glasses cache |
+| `agent_hud/gateways.py` | no | the paired environments, and which one is in use |
 | `agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
@@ -75,6 +77,30 @@ Anything unrecognised, and every 5xx, becomes `UNREACHABLE` rather than a failur
 Two protections travel with every answer and guard different things. **`revision`** stops someone answering a version of a task that has moved on; the gateway refuses it with 409 and the wearer is sent back to read it again. **`request_id`** is stable across retries, so an attempt that reached the gateway but lost its answer is recognised rather than carried out twice. Retry is offered for `UNREACHABLE` only: a refusal or a stale answer means the gateway heard us and said no, and asking again unchanged is just asking twice.
 
 The gateway checks every incoming answer against the actions **it** would have offered for that task, never against what the request claims. An agent cannot put an executable button on someone's face by naming one in a payload.
+
+## Two absences that are the design
+
+Both of these are things you will not find, and both are deliberate. If a
+change adds one, it is undoing a decision rather than filling a gap, and
+there is a test in each case that should make it argue first.
+
+**Gaze is not an activation mode.** `preferences.ACTIVATION_MODES` is
+`double_blink` and `dwell`, and nothing a gateway sends can add to it. A
+dwell shorter than `MIN_DWELL_MS` is raised to it, because a dwell short
+enough to be a glance is gaze-activation by another name.
+
+**Nothing chooses a gateway.** `gateways.py` has no failover, no
+fallback, no "next". When the active one stops answering, the display
+says so and waits. Falling back from Work to Home would put one
+environment's tasks in front of someone who believed they were looking at
+the other's, which is worse than showing nothing.
+
+Related: the display tolerates a few failed polls quietly, keeping the
+last list with the amber marker, and only then gives up and says the
+gateway is gone (`navigation.OFFLINE_PATIENCE`). A wobbly network is not
+worth interrupting anyone over; presenting stale work as current for ever
+is its own kind of lie. Someone part way through answering something is
+never interrupted by it.
 
 ## What the framework actually gives you
 
