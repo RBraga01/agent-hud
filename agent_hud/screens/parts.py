@@ -237,8 +237,13 @@ def row_button(
 
 
 def button_row(width: int, buttons: list[Button]) -> HorizontalContainer:
-    """The footer of a screen: the way back, then the way on."""
-    strip = HorizontalContainer(width=width, spacing=16)
+    """The footer of a screen: the way back, then the way on.
+
+    The height is stated rather than left to the layout. A container with
+    no height reserves none, so the card above it closes early and the
+    buttons spill through its bottom edge.
+    """
+    strip = HorizontalContainer(width=width, height=s.BUTTON_HEIGHT, spacing=16)
     for button in buttons:
         strip.add(button)
     return strip

@@ -4,30 +4,42 @@ A quiet display for [Raven Prism](https://raven.computer) smart glasses that tel
 
 You run coding agents and jobs on other machines. Today you find out how they are doing by going to a screen and looking. This tells you instead, in the corner of your vision, without you asking.
 
-Most of the time it shows almost nothing. When something is waiting on you, a small number appears. Look at it and it opens to tell you what.
+Most of the time it shows almost nothing. When something is waiting on you, a small number appears. Look at it, activate it, and you can read what it is and answer it.
 
 > **Not affiliated with Raven Resonance.** This is an independent project. The Raven Framework is separate proprietary software, installed by hand, and is never included here.
 
 ## How it looks
 
-| Daylight | Low light |
+![The six screens, low light](docs/screens_night.png)
+
+The same six screens in daylight are in [docs/screens_day.png](docs/screens_day.png). The display can only add light — it can never darken what is behind it — so everything is drawn as outlines and bright text, and it reads best against something that is not a bright window.
+
+| Screen | What is on it |
 |---|---|
-| ![The HUD in Raven's simulator, daylight background](docs/demo_day.gif) | ![The HUD in Raven's simulator, low-light background](docs/demo_night.gif) |
+| **Nothing waiting** | One small dot out in the right periphery. Nothing else. |
+| **Something waiting** | A number in a ring, and the words "needs you" |
+| **What is waiting** | One row per task: where it came from, and one line about it |
+| **One task** | The whole text, and the way on to acting on it |
+| **Choose** | Four fixed positions: the two actions your gateway offered, plus audio and cancel |
+| **Confirm** | The action named in full, and the only button that would ever send it |
 
-Four states:
+If the gateway cannot be reached, or the list came back with pieces missing, the last known list stays on screen with a small amber dot in the corner. That marker exists so that a quiet display and a broken one never look like the same thing.
 
-| State | What is on screen |
-|---|---|
-| Nothing waiting | One small bright dot in the right periphery. Nothing else. |
-| Something waiting | A card holding a number, and the words "need you" |
-| Opened | Each item in its own row, with a line counting what did not fit |
-| Gateway unreachable, or the list came back with holes | The last known count stays, with an amber dot below it |
+Moving between screens is a short slide and fade. Going deeper, the new screen rises into place; coming back, it settles from above. `AGENT_HUD_ANIMATIONS=off` makes every change instant.
 
-The screen moves between these with short slide-and-fade transitions &mdash; the card unfolds from where the count sits, rather than popping in. `AGENT_HUD_ANIMATIONS=off` makes every change instant.
+## Looking is not pressing
 
-| Daylight | Low light |
-|---|---|
-| ![Opening and closing the detail card, daylight background](docs/transition_day.gif) | ![Opening and closing the detail card, low-light background](docs/transition_night.gif) |
+This is the rule the whole design is built around.
+
+**Looking at something only focuses it.** It grows a little and lights up, so you know what you are aimed at. Nothing happens yet.
+
+**Activating it is a separate, deliberate act** — a double blink, or holding your gaze until a dwell completes. Which of the two is your setting, in RavenOS. The app is not told which one you used, and does not need to be.
+
+**Choosing an action does not send it.** Picking "Approve" opens a confirmation screen. Only the OK button on that screen would ever transmit anything.
+
+There is no setting to turn any of that off. A display you can trigger by looking at the wrong thing is not one you can wear.
+
+> **This version cannot send yet.** You can see everything, walk into any task, and choose an action, but pressing OK lands on a screen that tells you plainly that nothing was sent. The part that answers your agents is the next piece of work. The app will never claim to have done something it did not do.
 
 ## What you need
 
@@ -78,7 +90,7 @@ And the app in another:
 python main.py
 ```
 
-The simulator opens. Your mouse stands in for where you are looking, a click stands in for the stare or blink that selects something, and the buttons along the bottom preview how it looks in daylight, at night and outdoors. Black shows as transparent, because the real display can only add light to the world — it can never darken it.
+The simulator opens. Your mouse stands in for where you are looking, and a click stands in for the double blink or completed dwell that activates whatever you are aimed at, and the buttons along the bottom preview how it looks in daylight, at night and outdoors. Black shows as transparent, because the real display can only add light to the world — it can never darken it.
 
 Now edit `stub_server/agents.json` and watch the glasses follow within a few seconds.
 
@@ -88,7 +100,7 @@ All settings are optional and read from the environment. Nothing is written into
 
 | Variable | Default | What it does |
 |---|---|---|
-| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the list |
+| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the task list |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
 | `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
@@ -115,13 +127,13 @@ python main.py
 
 A bad value stops the app at startup with a clear message rather than leaving you with a display that quietly does nothing.
 
-## Where the items come from
+## Where the tasks come from
 
 A **feeder** is the part that knows about one particular tool. The glasses app knows about none of them, which is why adding a source never means touching the app.
 
 | Feeder | What it reads |
 |---|---|
-| `simulated` | Nothing. Invented items, so the app can be run and demonstrated with no accounts and no personal data. This is the default. |
+| `simulated` | Nothing. Invented tasks, so the app can be run and demonstrated with no accounts and no personal data. This is the default. It is also the only feeder that offers actions, because it is the only one whose answers go nowhere. |
 | `claude_hook` | State written by four small Claude Code hooks. Knows the difference between your turn, a failure, and Claude still doing background work. Needs a one-time install (below). |
 | `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
 | `codex` | Your recent Codex CLI sessions, from `~/.codex`. Reads the session index for a title and the session log's tail for whose turn it is. Undocumented format, like `claude`. |
@@ -181,26 +193,45 @@ Cursor, OpenCode and the GitHub Copilot CLI follow the same shape: a per-session
 
 ## What the gateway sends
 
-The app knows nothing about Codex, GitHub, or any other tool. It receives a list of items and draws them. Everything tool-specific belongs on the server side, so adding a new source never means changing and redeploying the glasses app.
+The app knows nothing about Claude, Codex, GitHub, or any other tool. It receives a list of tasks and draws them. Everything tool-specific belongs on the gateway side, so adding a new source never means changing and redeploying the glasses app.
 
 ```json
 {
-  "items": [
+  "tasks": [
     {
-      "id": "claude-deploy",
-      "title": "Claude Code",
-      "detail": "approve deploy?",
-      "needs_you": true
+      "id": "task-17",
+      "revision": 4,
+      "source": "Claude",
+      "title": "Deploy production",
+      "summary": "Deployment needs approval",
+      "detail": "Validation completed. 47 tests passed. Production deployment is waiting for your approval.",
+      "needs_you": true,
+      "actions": {
+        "primary":   { "id": "approve", "label": "Approve" },
+        "secondary": { "id": "reject",  "label": "Reject"  }
+      }
     }
   ]
 }
 ```
 
-Four fields, nothing else. `title` and `detail` are already-written text — the app draws them, it never composes sentences. The number in the corner is how many items have `needs_you` set.
+Each screen uses a different part of it:
 
-Parsing is strict. An entry that does not match this shape exactly is dropped rather than guessed at, because guessing would either hide work from you or invent work that is not there.
+| Screen | Fields |
+|---|---|
+| What is waiting | `source` and `summary` |
+| One task | `source`, `title` and `detail` |
+| Choose | `title`, and the actions |
 
-It is also bounded. At most 100 items are kept, `title` is capped at 64 characters and `detail` at 256, and a response over 256 KB is refused unread. Anything trimmed shows the same amber "incomplete" marker a dropped entry does — a shortened list is not the whole list.
+All of it is already-written text. The app draws what it is given and never composes a sentence of its own.
+
+**`revision`** is what makes acting on a task safe. It goes back with your answer, and a gateway that has already moved past that revision refuses it — so you can never approve a version of a task that no longer exists. If it changes while you are on the confirmation screen, the app takes you back to read the task again rather than letting you commit to something stale.
+
+**Actions come only from the gateway.** The app never invents one, never renames one, and never moves one into a different position to tidy up a gap. If your gateway offers a primary but no secondary, the right-hand position simply stays empty. That is also why the source mark on each row is chosen by the glasses from the source *name*: a gateway cannot put arbitrary graphics on your display.
+
+Parsing is strict. An entry that does not match this shape exactly is dropped rather than guessed at, because guessing would either hide work from you or invent work that is not there. A task without a `revision` is dropped too — without one there is no way to tell whether what you are looking at is still current.
+
+It is also bounded. At most 100 tasks are kept; `source` is capped at 24 characters, `title` at 64, `summary` at 96, `detail` at 2048 and an action label at 16; and a response over 256 KB is refused unread. Anything trimmed shows the same amber marker a dropped entry does — a shortened list is not the whole list.
 
 ## Layout
 
@@ -208,12 +239,17 @@ It is also bounded. At most 100 items are kept, `title` is capped at 64 characte
 main.py                 entry point
 agent_hud/
   config.py             settings from the environment      no framework needed
-  items.py              the contract and its parser        no framework needed
+  tasks.py              the contract and its parser        no framework needed
   client.py             fetching from the gateway          no framework needed
-  interaction.py        when the detail is showing         no framework needed
-  app.py                the screen                         needs the framework
+  navigation.py         which screen you are on            no framework needed
+  transitions.py        which motion plays                 no framework needed
+  app.py                placing widgets, and little else   needs the framework
+  screens/              one module per screen              needs the framework
+    style.py            colours, sizes, spacing
+    parts.py            cards, rows, buttons, labels
+  assets/               the small source and action marks
 feeders/
-  simulated.py          invented items, no accounts needed no framework needed
+  simulated.py          invented tasks, no accounts needed no framework needed
   claude_hook.py        reads Claude Code hook state       no framework needed
   claude_sessions.py    reads Claude transcripts (fallback)no framework needed
   codex.py              reads Codex CLI sessions           no framework needed

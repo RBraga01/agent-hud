@@ -1,8 +1,18 @@
-"""Which animation plays when the screen changes, and its geometry.
+"""Which animation plays when the screen changes.
 
-Framework-free. `app.py` imports the layout constants and `transition_for`
-from here, then drives the Qt timeline. Keeping the decision and the
-numbers out of the screen means both can be tested without the framework.
+Framework-free. ``app.py`` asks what to play and drives the Qt timeline;
+the decision itself is plain data so it can be checked without a display.
+
+The screens are a ladder, from the resting dot down into one task:
+
+    idle -> attention -> task list -> task detail -> action menu
+         -> confirmation -> result
+
+Going down the ladder the new screen rises into place; coming back up it
+settles from above. That is the whole idea: the wearer should feel they
+are moving through one task rather than being shown a series of unrelated
+cards. Motion is short and always secondary to being able to read the
+thing that just arrived.
 """
 
 from __future__ import annotations
@@ -13,30 +23,32 @@ from dataclasses import dataclass
 
 APP_SIZE = 640
 EDGE_MARGIN = 24
-FRAME_INSET = 6
-FRAME_SIZE = APP_SIZE - FRAME_INSET * 2
-
-COUNT_RING_SIZE = 132
-COUNT_LABEL_HEIGHT = 42
-COUNT_CARD_WIDTH = COUNT_RING_SIZE + 25 * 2 + 36
-
-CARD_WIDTH = FRAME_SIZE
-CARD_MARGIN_X = 25
-CARD_MARGIN_TOP = 35
-CARD_MARGIN_BOTTOM = 35
-CARD_SPACING = 10
-TITLE_HEIGHT = 46
-OVERFLOW_LINE_HEIGHT = 34
-ROW_HEIGHT = 96
-MAX_PANEL_ITEMS = 2
-
 IDLE_DOT_SIZE = 16
+INCOMPLETE_DOT_SIZE = 14
 
 # Motion timings, in milliseconds.
 GROW_MS = 260
-EXPAND_MS = 300
-COLLAPSE_MS = 240
+DEEPER_MS = 300
+SHALLOWER_MS = 240
 SHRINK_MS = 220
+
+# How far a screen travels as it arrives. Enough to read as movement,
+# not far enough to be a journey.
+DEEPER_RISE = 26
+SHALLOWER_DROP = 20
+GROW_RISE = 12
+SHRINK_DROP = 8
+
+# How deep each screen sits. Only the order matters.
+_DEPTH = {
+    "idle": 0,
+    "attention": 1,
+    "task_list": 2,
+    "task_detail": 3,
+    "action_menu": 4,
+    "confirmation": 5,
+    "result": 6,
+}
 
 
 @dataclass(frozen=True)
@@ -62,107 +74,66 @@ def interpolate(a: Rect, b: Rect, progress: float) -> Rect:
     )
 
 
-def count_card_height() -> int:
-    return (
-        CARD_MARGIN_TOP
-        + COUNT_RING_SIZE
-        + CARD_SPACING
-        + COUNT_LABEL_HEIGHT
-        + CARD_MARGIN_BOTTOM
-    )
+def centre_of(width: int, height: int) -> tuple[int, int]:
+    """Where a screen of this size sits. Everything is centred."""
+    return (APP_SIZE - width) // 2, (APP_SIZE - height) // 2
 
 
-def count_card_rect() -> Rect:
-    h = count_card_height()
-    return Rect(
-        x=APP_SIZE - COUNT_CARD_WIDTH - EDGE_MARGIN,
-        y=(APP_SIZE - h) // 2,
-        width=COUNT_CARD_WIDTH,
-        height=h,
-    )
+def idle_dot_position() -> tuple[int, int]:
+    """The resting dot, out in the right periphery where it will not nag."""
+    return APP_SIZE - IDLE_DOT_SIZE - EDGE_MARGIN, APP_SIZE // 2
 
 
-def ring_rect() -> Rect:
-    """The count ring's bounding box, in app coordinates.
+def transition_for(old_screen, new_screen, *, animate: bool = True) -> str:
+    """The animation to play moving from one screen to another.
 
-    The ring is the first stacked child inside the count card, so it sits
-    one top-margin down from the card's own top-left.
+    Both are ``Screen`` values, or the strings behind them, or None on the
+    very first paint. Returns ``grow``, ``shrink``, ``deeper``,
+    ``shallower`` or ``none``.
     """
-    card = count_card_rect()
-    return Rect(
-        x=card.x + CARD_MARGIN_X,
-        y=card.y + CARD_MARGIN_TOP,
-        width=COUNT_RING_SIZE,
-        height=COUNT_RING_SIZE,
-    )
-
-
-def dot_rect() -> Rect:
-    """The idle dot, centred where the ring's centre is."""
-    ring = ring_rect()
-    cx = ring.x + ring.width // 2
-    cy = ring.y + ring.height // 2
-    return Rect(
-        x=cx - IDLE_DOT_SIZE // 2,
-        y=cy - IDLE_DOT_SIZE // 2,
-        width=IDLE_DOT_SIZE,
-        height=IDLE_DOT_SIZE,
-    )
-
-
-def panel_height(rows: int, overflow: int) -> int:
-    h = CARD_MARGIN_TOP + TITLE_HEIGHT + CARD_SPACING
-    h += rows * (ROW_HEIGHT + CARD_SPACING)
-    if overflow > 0:
-        h += OVERFLOW_LINE_HEIGHT + CARD_SPACING
-    return h + CARD_MARGIN_BOTTOM
-
-
-def card_rect(rows: int, overflow: int) -> Rect:
-    """Where the opened panel card sits."""
-    h = panel_height(rows, overflow)
-    return Rect(
-        x=FRAME_INSET,
-        y=(APP_SIZE - h) // 2,
-        width=CARD_WIDTH,
-        height=h,
-    )
-
-
-# --- the decision ----------------------------------------------------------
-
-_KIND = {"idle": 0, "count": 1, "panel": 2}
-
-_MOVES = {
-    ("idle", "count"): "grow",
-    ("count", "idle"): "shrink",
-    ("count", "panel"): "expand",
-    ("panel", "count"): "collapse",
-    ("panel", "idle"): "collapse",
-    ("idle", "panel"): "expand",
-}
-
-
-def transition_for(old_view, new_view, *, animate: bool = True) -> str:
-    """The animation to play going from *old_view* to *new_view*.
-
-    Both are the tuples ``AgentHud._view()`` returns; the first element is
-    the kind (``idle`` / ``count`` / ``panel``). Returns one of ``grow``,
-    ``shrink``, ``expand``, ``collapse`` or ``none``.
-    """
-    if not animate or old_view is None or new_view is None:
+    if not animate or old_screen is None or new_screen is None:
         return "none"
-    old_kind = old_view[0]
-    new_kind = new_view[0]
-    if old_kind == new_kind:
+
+    old = _DEPTH.get(str(getattr(old_screen, "value", old_screen)))
+    new = _DEPTH.get(str(getattr(new_screen, "value", new_screen)))
+    if old is None or new is None or old == new:
         return "none"
-    return _MOVES.get((old_kind, new_kind), "none")
+
+    # The dot swelling into the count, and back, is its own small moment
+    # rather than just another step down the ladder.
+    if old == 0 and new == 1:
+        return "grow"
+    if old == 1 and new == 0:
+        return "shrink"
+    return "deeper" if new > old else "shallower"
 
 
 def duration_ms(move: str) -> int:
     return {
         "grow": GROW_MS,
-        "expand": EXPAND_MS,
-        "collapse": COLLAPSE_MS,
         "shrink": SHRINK_MS,
+        "deeper": DEEPER_MS,
+        "shallower": SHALLOWER_MS,
     }.get(move, 0)
+
+
+def travel(move: str) -> int:
+    """How far, and which way, the arriving screen moves.
+
+    Positive means it starts below its resting place and rises.
+    """
+    return {
+        "grow": GROW_RISE,
+        "shrink": -SHRINK_DROP,
+        "deeper": DEEPER_RISE,
+        "shallower": -SHALLOWER_DROP,
+    }.get(move, 0)
+
+
+def is_springy(move: str) -> bool:
+    """Whether the move overshoots slightly before settling.
+
+    Only the two that open something. Coming back should feel like
+    closing, which is calmer than arriving.
+    """
+    return move in ("grow", "deeper")

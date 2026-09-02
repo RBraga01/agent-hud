@@ -16,11 +16,11 @@ So every decision worth testing lives in a module that does not import the frame
 
 | Module | Needs the framework | What it holds |
 |---|---|---|
-| `agent_hud/items.py` | no | the contract and its parser |
+| `agent_hud/tasks.py` | no | the task contract and its parser |
 | `agent_hud/config.py` | no | settings from the environment |
 | `agent_hud/client.py` | no | fetching from the gateway |
-| `agent_hud/interaction.py` | no | when the detail panel is showing |
-| `agent_hud/transitions.py` | no | which animation plays on a state change, and its geometry |
+| `agent_hud/navigation.py` | no | which of the six screens you are on, and what moves you |
+| `agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
@@ -28,7 +28,8 @@ So every decision worth testing lives in a module that does not import the frame
 | `feeders/__init__.py` | no | `collect()` runs the chosen feeders; `file_items()` reads a hand-edited file and raises `FileFeederError` when it exists but is not JSON |
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
-| `agent_hud/app.py` | **yes** | placing widgets, and nothing else |
+| `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
+| `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
@@ -44,10 +45,34 @@ The whole product is "you can trust that nothing on screen means nothing needs y
 | A list, with items | Show them. |
 | Not a list at all, or unreachable | Keep the last known list, and mark it incomplete. |
 | A list where some entries were malformed | Show the good ones, and mark it incomplete. |
-| More than `MAX_ITEMS`, or an entry's text over length | Keep the first `MAX_ITEMS`, cut over-long `title`/`detail` to fit, and mark it incomplete. A response over `MAX_RESPONSE_BYTES` is refused unread and treated as unreachable. |
+| More than `MAX_TASKS`, or an entry's text over length | Keep the first `MAX_TASKS`, cut over-long `title`/`detail` to fit, and mark it incomplete. A response over `MAX_RESPONSE_BYTES` is refused unread and treated as unreachable. |
 | A feeder threw while building the list | Let it propagate. `stub_server` returns 500, the client reads that as not-ok, and the screen keeps the last list and marks it incomplete. `file_items()` raises `FileFeederError` for a present-but-unparseable file for exactly this reason — it must not return `[]`. |
 
-`parse_payload` reports `valid`, `dropped` and `truncated` separately for this reason, and `AgentHud.is_complete` (online **and** `dropped == 0` **and** `truncated == 0`) is what drives the amber marker. The caps live at the contract boundary — `MAX_RESPONSE_BYTES` in `client.py`, `MAX_ITEMS` / `MAX_TITLE` / `MAX_DETAIL` in `items.py` — so every feeder inherits them. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
+`parse_tasks` reports `valid`, `dropped` and `truncated` separately for this reason, and `AgentHud.is_complete` (online **and** `dropped == 0` **and** `truncated == 0`) is what drives the amber marker. The caps live at the contract boundary — `MAX_RESPONSE_BYTES` in `client.py`, `MAX_TASKS` / `MAX_SOURCE` / `MAX_TITLE` / `MAX_SUMMARY` / `MAX_DETAIL` / `MAX_LABEL` in `tasks.py` — so every feeder inherits them. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
+
+## Looking is not pressing
+
+The second rule, and it is not negotiable or configurable.
+
+**Gaze position is read for focus only.** `tick_gaze` records where the wearer is looking and does nothing else — no timer, no state to advance. If you ever find yourself writing "if the gaze has been here for N milliseconds, then…", stop: that is gaze-activation, and it is the thing this product must not do.
+
+**Activation arrives as a framework `Button`'s `clicked` signal.** RavenOS emits it when the wearer double-blinks at the focused control or completes a dwell on it. Which of the two it was is the wearer's setting and the OS's business; the app is not told and does not need to be.
+
+The consequence for the code: **anything pressable must be a real `Button`**. Building a "button" out of an outlined `Container` would mean re-implementing activation from gaze ourselves, which is exactly the forbidden thing wearing a different hat.
+
+**Selecting is not sending.** Choosing an action opens the confirmation screen. `navigation.advance` is a pure function and could not send anything if it wanted to; only `app.py`, and only after `CONFIRM`, may talk to the gateway.
+
+## What the framework actually gives you
+
+Checked against the installed framework on 2026-09-02. Several of these contradict what you would assume.
+
+| You want | What is really there |
+|---|---|
+| A double-blink event | **There is no API.** `peripherals/eye_control.py` exposes only `get_gaze_position()`. Blink and dwell both arrive as `Button.clicked`, and the app cannot tell them apart. |
+| The dwell progress ring | Already built into `components/button.py`: `dwell_time`, `use_fill_dwell`, `enable_quad_dwell`. Configure it; do not draw your own. |
+| Focus feedback on hover | `Button` already scales and lights on `enterEvent`. In the simulator the cursor *is* the gaze. |
+| Scrolling | `components/scroll_view.py` has `ScrollView` and `PaginationContainer`. Raven's own guidance prefers pagination, and so do we: one glance per page beats holding your eyes on moving text. |
+| `ClickButton` | The **physical** button on the glasses (Enter in the simulator). Not the eye. |
 
 ## Only one request at a time
 
@@ -77,6 +102,10 @@ All of these cost real time. None are in Raven's documentation.
 | `Container.clear()` | Calls `deleteLater()` on every child. A widget kept between redraws becomes a dangling pointer. Build fresh every time. |
 | `python main.py deploy` | Raven's packager walks the whole directory and copies every `.py` plus `.json`/`.md`/`.gif`/... It ignores `.gitignore`. Its own guard only skips a folder literally named `raven_framework` (underscore), not the `raven-framework` clone. `.ravignore` is what keeps the framework, tests and docs out of the upload — keep it current. |
 | `app_id` / `app_key` at runtime | `RunApp.run` passes them into `bind_sleep_wake` and on into peripheral authentication, not only into `deploy`. For current internal testing Raven checks out the app and adds internal credentials locally; the public developer token / runtime mechanism has not been released yet. Agent HUD therefore keeps credentials out of source control and reads them from `RAVEN_APP_ID` / `RAVEN_APP_KEY`. Our `EyeControl()` call does not thread credentials through — revisit once the public mechanism exists. |
+| `border_color=` on any container or button | Silently ignored. The theme sets `use_gradient_border=True` with a **white-to-grey** gradient, which overrides it — which is why every outline came out white the first time. Spread `style.outline()` into the constructor to set the gradient explicitly. |
+| `background_color=` on a `Button` | Silently discarded when `use_fill_dwell` is on, which it is by default: the framework paints its own dwell fill instead, so a button you meant to be filled comes out hollow. Pass `use_fill_dwell=False` when the fill is the point. |
+| Centring a child inside a container | `VerticalContainer`/`HorizontalContainer` only stack; they centre nothing. Nudging `inner_margin` to fake it breaks the moment a label changes length. Use a `Container` and `add(widget, x, y)`. |
+| A container with no `height` in a card | Reserves no space, so the card closes early and the contents spill through its bottom border. State the height (see `parts.button_row`). |
 | `AsyncRunner.run(fn, on_complete=…)` | The callback takes **no arguments** and `fn`'s return value is discarded. The documentation says otherwise and following it raises. Carry results on the instance. |
 | A clickable `Icon` | Draws no outline until the dwell starts. It needs a bordered container behind it to have any visible shape at rest. |
 | Sizing a `VerticalContainer` to exactly fit | The box layout compresses children to make room for text's real height. Leave slack or things get clipped. |
