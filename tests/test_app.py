@@ -1298,3 +1298,136 @@ def test_the_recording_is_never_kept_on_the_app(qapp):
     ]
 
     assert held == [], f"the app is holding audio in {held}"
+
+
+# --- the wearer's own choices -----------------------------------------
+
+
+def test_choosing_dwell_reaches_the_buttons(qapp):
+    from agent_hud.screens import parts
+
+    hud = make_hud(qapp, tasks=[WAITING])
+
+    hud.apply_preferences(
+        {"revision": 2, "interaction": {"mode": "dwell", "dwell_ms": 900}}
+    )
+
+    assert parts._activation["mode"] == "dwell"
+    assert parts._activation["dwell_ms"] == 900
+
+
+def test_double_blink_pushes_the_dwell_out_of_the_way(qapp):
+    # So resting your eyes on a control never presses it. The blink still
+    # fires the same signal.
+    from agent_hud.screens import style
+
+    settings = style.dwell_settings("double_blink", 1500)
+
+    assert settings["dwell_time"] >= style.DWELL_OFF_MS
+    assert settings["use_fill_dwell"] is False
+
+
+def test_no_activation_setting_makes_looking_enough(qapp):
+    from agent_hud.screens import style
+
+    for mode in ("double_blink", "dwell", "gaze", "", "anything"):
+        settings = style.dwell_settings(mode, 5)
+        # There is no value here that switches activation off entirely or
+        # makes a resting gaze into a press.
+        assert settings["dwell_time"] > 0
+
+
+# --- turning the page by looking, when asked for ----------------------
+
+
+def open_reading(qapp, hud):
+    hud.open_list()
+    hud.select_task("a")
+    pump(qapp)
+    return hud
+
+
+LONG = Task(
+    id="a",
+    revision=1,
+    source="Claude",
+    title="Deploy production",
+    summary="Deployment needs approval",
+    detail="Validation completed. " * 60,
+    needs_you=True,
+    primary=Action(id="approve", label="Approve"),
+)
+
+
+def bottom_of(hud):
+    left, top, width, height = hud._screen_rect
+    return (left + width // 2, top + int(height * 0.9))
+
+
+def test_looking_at_the_bottom_does_nothing_unless_asked_for(qapp):
+    hud = make_hud(qapp, tasks=[LONG])
+    open_reading(qapp, hud)
+    page = hud.nav.page
+
+    for step in range(60):
+        hud.tick_gaze(gaze_position=bottom_of(hud), now=float(step))
+
+    assert hud.nav.page == page
+
+
+def test_with_auto_scroll_on_looking_at_the_bottom_turns_the_page(qapp):
+    hud = make_hud(qapp, tasks=[LONG])
+    hud.apply_preferences(
+        {"revision": 2, "scroll": {"auto": True, "speed": "fast"}}
+    )
+    open_reading(qapp, hud)
+    assert hud.nav.page == 0
+
+    hud.tick_gaze(gaze_position=bottom_of(hud), now=0.0)
+    hud.tick_gaze(gaze_position=bottom_of(hud), now=5.0)
+
+    assert hud.nav.page == 1
+
+
+def test_looking_at_the_top_never_turns_it(qapp):
+    hud = make_hud(qapp, tasks=[LONG])
+    hud.apply_preferences(
+        {"revision": 2, "scroll": {"auto": True, "speed": "fast"}}
+    )
+    open_reading(qapp, hud)
+    left, top, width, _ = hud._screen_rect
+
+    for step in range(40):
+        hud.tick_gaze(gaze_position=(left + width // 2, top + 10), now=float(step))
+
+    assert hud.nav.page == 0
+
+
+def test_auto_scroll_never_leaves_the_screen_it_is_reading(qapp):
+    """It turns pages. It does not press anything, ever."""
+    hud = make_hud(qapp, tasks=[LONG])
+    hud.apply_preferences(
+        {"revision": 2, "scroll": {"auto": True, "speed": "fast"}}
+    )
+    open_reading(qapp, hud)
+
+    for step in range(200):
+        hud.tick_gaze(gaze_position=bottom_of(hud), now=float(step))
+        pump(qapp)
+
+    assert hud.screen is Screen.TASK_DETAIL
+
+
+def test_auto_scroll_does_nothing_on_a_screen_that_is_not_reading(qapp):
+    hud = make_hud(qapp, tasks=[LONG])
+    hud.apply_preferences(
+        {"revision": 2, "scroll": {"auto": True, "speed": "fast"}}
+    )
+    open_reading(qapp, hud)
+    hud.take_action()
+    pump(qapp)
+
+    for step in range(40):
+        hud.tick_gaze(gaze_position=(320, 600), now=float(step))
+
+    assert hud.screen is Screen.ACTION_MENU

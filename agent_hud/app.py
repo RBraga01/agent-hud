@@ -37,6 +37,8 @@ from .feedback import (
     send_feedback,
 )
 from .navigation import (
+    SCROLL_ZONE_FROM,
+    AutoScroll,
     Event,
     Nav,
     Screen,
@@ -53,6 +55,7 @@ from .screens import (
     build_result,
     build_task_detail,
     build_task_list,
+    parts,
 )
 from .screens import style as s
 from .screens.audio import build_listening, build_processing, build_review
@@ -156,6 +159,10 @@ class AgentHud(RavenApp):
         # not also change how the display behaves.
         self._preferences = Preferences()
         self._gateways = self._settings.gateways
+        # Off unless the wearer asks for it. Turning a page is the one
+        # thing the gaze may drive, because it executes nothing.
+        self._auto_scroll = AutoScroll(enabled=False)
+        self._screen_rect: tuple[int, int, int, int] | None = None
 
         # Speaking a reply. The recording never lands on the instance --
         # it goes straight from the microphone to the gateway and is
@@ -422,14 +429,44 @@ class AgentHud(RavenApp):
     def tick_gaze(
         self, gaze_position: tuple[int, int] | None = None, now: float | None = None
     ) -> None:
-        """Record where the wearer is looking. Deliberately does nothing else.
+        """Record where the wearer is looking, and nothing else that acts.
 
         Focus is the framework's job: a button under the gaze scales and
         lights on its own. This app never converts a gaze position into an
-        activation, which is why there is no timer here and no state to
-        advance.
+        activation.
+
+        The single exception is turning the page of something you are
+        reading, when the wearer has asked for that. It is allowed because
+        it executes nothing: no agent is told anything, nothing leaves the
+        glasses, and the worst a mistake does is show the next page.
         """
         self._gaze_position = gaze_position
+
+        if self._nav.screen is not Screen.TASK_DETAIL:
+            self._auto_scroll.reset()
+            return
+
+        moment = self._clock() if now is None else now
+        if self._auto_scroll.should_advance(
+            inside_zone=self._gaze_in_scroll_zone(gaze_position), now=moment
+        ):
+            self.scroll_down()
+
+    def _gaze_in_scroll_zone(
+        self, gaze_position: tuple[int, int] | None
+    ) -> bool:
+        """Whether the wearer is looking at the foot of what they are reading.
+
+        An unknown position is not "looking away and back": it is no news,
+        and the wait starts over rather than quietly adding up.
+        """
+        if gaze_position is None or self._screen_rect is None:
+            return False
+        x, y = gaze_position
+        left, top, width, height = self._screen_rect
+        if not (left <= x <= left + width):
+            return False
+        return top + height * SCROLL_ZONE_FROM <= y <= top + height
 
     # -- data -----------------------------------------------------------
 
@@ -510,6 +547,8 @@ class AgentHud(RavenApp):
         # clear() deletes every child, so nothing built here may be reused
         # on a later pass. Each redraw builds new widgets.
         self.app.clear()
+        self._screen_rect = None
+        self._auto_scroll.reset()
         top = self._draw_current()
 
         if move != "none" and top is not None:
@@ -659,9 +698,15 @@ class AgentHud(RavenApp):
         )
 
     def _place(self, widget):
-        """Put a screen in the middle of the display."""
+        """Put a screen in the middle of the display.
+
+        Remembers where it landed, which is what auto-scroll tests the
+        gaze against — so the zone is the bottom of the card actually on
+        screen, not a guess at where one usually is.
+        """
         x, y = centre_of(widget.width(), widget.height())
         self.app.add(widget, x, y)
+        self._screen_rect = (x, y, widget.width(), widget.height())
         return widget
 
     def _draw_idle_dot(self):
@@ -937,6 +982,12 @@ class AgentHud(RavenApp):
             return
         self._preferences = preferences
         self._animate = preferences.animations
+        # One setting, applied to every button built from here on.
+        parts.set_activation(preferences.activation, preferences.dwell_ms)
+        self._auto_scroll = AutoScroll(
+            enabled=preferences.auto_scroll, speed=preferences.scroll_speed
+        )
+        self._rendered = None  # buttons must be rebuilt with the new dwell
         if isinstance(payload, dict):
             # Whether Audio is offered at all. Recording something the
             # gateway cannot process would waste the wearer's time and

@@ -419,3 +419,77 @@ def test_pressing_retry_does_not_pretend_anything_happened(tasks):
     nav = Nav(screen=Screen.UNAVAILABLE)
 
     assert advance(nav, Event.ACTIVATE, tasks) == nav
+
+
+# --- turning the page by looking at the bottom of it -------------------
+#
+# The one place the gaze drives anything, and only because scrolling
+# executes nothing: nothing leaves the glasses and no agent is told
+# anything. Off unless the wearer asks for it.
+
+
+def test_auto_scroll_does_nothing_when_it_is_off():
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=False)
+
+    for step in range(100):
+        assert scroll.should_advance(inside_zone=True, now=float(step)) is False
+
+
+def test_looking_at_the_bottom_long_enough_turns_the_page():
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=True, speed="normal")
+
+    assert scroll.should_advance(inside_zone=True, now=0.0) is False
+    assert scroll.should_advance(inside_zone=True, now=0.5) is False
+    assert scroll.should_advance(inside_zone=True, now=5.0) is True
+
+
+def test_a_glance_across_the_bottom_does_not_turn_it():
+    # Passing your eyes over the foot of a card while reading must not
+    # move it under you.
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=True, speed="normal")
+    scroll.should_advance(inside_zone=True, now=0.0)
+
+    assert scroll.should_advance(inside_zone=True, now=0.3) is False
+
+
+def test_looking_away_starts_the_wait_over():
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=True, speed="fast")
+    scroll.should_advance(inside_zone=True, now=0.0)
+    scroll.should_advance(inside_zone=False, now=0.5)
+
+    assert scroll.should_advance(inside_zone=True, now=1.4) is False
+
+
+def test_it_turns_one_page_per_rest_not_one_per_tick():
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=True, speed="fast")
+    scroll.should_advance(inside_zone=True, now=0.0)
+    assert scroll.should_advance(inside_zone=True, now=2.0) is True
+
+    assert scroll.should_advance(inside_zone=True, now=2.1) is False
+
+
+def test_a_slower_speed_asks_for_a_longer_look():
+    from agent_hud.navigation import SCROLL_DELAYS
+
+    assert SCROLL_DELAYS["slow"] > SCROLL_DELAYS["normal"] > SCROLL_DELAYS["fast"]
+
+
+def test_resetting_forgets_where_the_gaze_was():
+    from agent_hud.navigation import AutoScroll
+
+    scroll = AutoScroll(enabled=True, speed="fast")
+    scroll.should_advance(inside_zone=True, now=0.0)
+
+    scroll.reset()
+
+    assert scroll.should_advance(inside_zone=True, now=5.0) is False

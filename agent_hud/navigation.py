@@ -137,6 +137,64 @@ def detail_page(task: Task | None, page: int) -> str:
     return task.detail[start : start + DETAIL_PAGE_CHARS]
 
 
+# Where the lower part of a card begins, as a fraction of its height.
+# Looking below this line is what auto-scroll watches for.
+SCROLL_ZONE_FROM = 0.70
+
+# How long the gaze has to rest there before a page turns, per speed.
+# Slower than a glance on purpose: passing your eyes across the bottom of
+# a card while reading it must not turn the page under you.
+SCROLL_DELAYS = {"slow": 2.4, "normal": 1.6, "fast": 1.0}
+
+
+class AutoScroll:
+    """Turning the page by looking at the bottom of it.
+
+    The one place in this app where the gaze drives anything, and it is
+    allowed for a specific reason: scrolling executes nothing. Nothing
+    leaves the glasses, no agent is told anything, and the worst a
+    mistake can do is show the next page of something you were reading.
+    Every rule about gaze never *activating* still holds, because turning
+    a page is not an activation.
+
+    Off unless the wearer asks for it. It exists for people who find
+    pressing a button for every page tiring, which is a real thing on a
+    headset, and it is a preference rather than a default because for
+    everyone else it would be a page turning by itself.
+    """
+
+    def __init__(self, *, enabled: bool = False, speed: str = "normal") -> None:
+        self.enabled = enabled
+        self.delay = SCROLL_DELAYS.get(speed, SCROLL_DELAYS["normal"])
+        self._resting_since: float | None = None
+
+    def reset(self) -> None:
+        """Forget where the gaze was. Called whenever the screen changes."""
+        self._resting_since = None
+
+    def should_advance(
+        self, *, inside_zone: bool, now: float
+    ) -> bool:
+        """Whether enough uninterrupted looking has happened to turn a page.
+
+        Returns True once per rest. Looking away, or an unknown gaze
+        position, starts the wait over rather than continuing it — losing
+        tracking for a moment must not add up to a page turn.
+        """
+        if not self.enabled or not inside_zone:
+            self._resting_since = None
+            return False
+
+        if self._resting_since is None:
+            self._resting_since = now
+            return False
+
+        if now - self._resting_since >= self.delay:
+            self._resting_since = None
+            return True
+        return False
+
+
 def _open_task(nav: Nav, task: Task) -> Nav:
     return replace(
         nav,

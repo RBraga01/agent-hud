@@ -70,6 +70,14 @@ The consequence for the code: **anything pressable must be a real `Button`**. Bu
 
 **Selecting is not sending.** Choosing an action opens the confirmation screen. `navigation.advance` is a pure function and could not send anything if it wanted to; only `app.py`, and only after `CONFIRM`, may talk to the gateway.
 
+**The one exception is `AutoScroll`, and it proves the rule.** Turning a
+page is the only thing the gaze may drive, because it executes nothing:
+no agent hears about it, nothing leaves the glasses, and the worst a
+mistake does is show the next page of what somebody was already reading.
+It is off unless asked for. If you find yourself adding a second
+exception, check whether the thing it drives can be observed from outside
+the glasses — if it can, the answer is no.
+
 ## Never claim what you cannot see
 
 The third rule, and it governs every word on the result screen.

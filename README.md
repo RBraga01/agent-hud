@@ -10,9 +10,15 @@ Most of the time it shows almost nothing. When something is waiting on you, a sm
 
 ## How it looks
 
+| Daylight | Low light |
+|---|---|
+| ![Walking from the resting dot into one task, daylight](docs/walk_day.gif) | ![Walking from the resting dot into one task, low light](docs/walk_night.gif) |
+
+Every screen, still, in low light:
+
 ![The six screens, low light](docs/screens_night.png)
 
-The same six screens in daylight are in [docs/screens_day.png](docs/screens_day.png). The display can only add light — it can never darken what is behind it — so everything is drawn as outlines and bright text, and it reads best against something that is not a bright window.
+The same six in daylight are in [docs/screens_day.png](docs/screens_day.png). The display can only add light — it can never darken what is behind it — so everything is drawn as outlines and bright text, and it reads best against something that is not a bright window.
 
 | Screen | What is on it |
 |---|---|
@@ -162,6 +168,8 @@ Two things are deliberately not settings:
 - **Gaze alone never activates anything.**
 
 You can choose *how* you activate a control — a double blink, or a dwell you hold, and how long that dwell is. You cannot choose to make looking at something enough. A gateway that asks for it is ignored, and a dwell short enough to be a glance is raised to the floor. It is not a setting anywhere in the code, and a test says so.
+
+**One exception, and only one: turning a page.** If you switch auto-scroll on, resting your eyes on the bottom of something you are reading turns to the next page. That is allowed where nothing else is, because turning a page executes nothing — no agent is told anything, nothing leaves the glasses, and the worst a mistake does is show you the next page of what you were already reading. It is off by default, and a glance across the foot of a card while reading is too quick to trigger it.
 
 ## What you need
 

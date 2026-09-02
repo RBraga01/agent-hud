@@ -30,6 +30,25 @@ _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 # Which mark stands for which source. The glasses choose it from the
 # source name; the gateway never sends an image, so a hostile or broken
 # gateway cannot put arbitrary graphics on the display.
+# How the wearer activates things. One setting, applying to every button
+# on every screen, so it is held here rather than threaded through ten
+# builder signatures that would all pass the same pair of values.
+#
+# It never changes *whether* a control can be activated, only how long a
+# dwell takes. There is no value it can hold that makes looking enough.
+_activation = {"mode": "double_blink", "dwell_ms": 1500}
+
+
+def set_activation(mode: str, dwell_ms: int) -> None:
+    """Apply the wearer's choice to every button built from now on."""
+    _activation["mode"] = mode
+    _activation["dwell_ms"] = int(dwell_ms)
+
+
+def _dwell() -> dict:
+    return s.dwell_settings(_activation["mode"], _activation["dwell_ms"])
+
+
 _SOURCE_MARKS = {
     "claude": "claude.png",
     "codex": "codex.png",
@@ -149,7 +168,10 @@ def primary_button(
         outline_width=0,
         scale_by=0.0,
         use_gradient_border=False,
+        # The fill dwell would throw away the background colour that makes
+        # this button the filled one, so the outline dwell is used here.
         use_fill_dwell=False,
+        dwell_time=_dwell()["dwell_time"],
     )
     button.on_clicked(on_click)
     return button
@@ -171,6 +193,7 @@ def secondary_button(
         outline_width=s.BORDER,
         outline_color=s.ACCENT,
         scale_by=0.0,
+        **_dwell(),
         **s.outline(),
     )
     button.on_clicked(on_click)
@@ -229,6 +252,7 @@ def row_button(
         background_color=s.TRANSPARENT,
         enable_click=on_click is not None,
         scale_by=0.0,
+        **_dwell(),
         **s.outline(),
     )
     if on_click is not None:

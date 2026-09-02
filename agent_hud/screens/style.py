@@ -88,6 +88,35 @@ ROWS_PER_PAGE = 3
 MAX_TRACKED_LABEL = 6
 
 
+# How the framework's own dwell is configured, from the wearer's choice.
+#
+# RavenOS turns both a double blink and a completed dwell into a button's
+# clicked signal, so "which one" is really "how long the framework's dwell
+# takes". In double-blink mode it is pushed far enough out that a resting
+# gaze never trips it, and the blink is what fires.
+DWELL_OFF_MS = 60_000
+
+
+def dwell_settings(activation: str = "double_blink", dwell_ms: int = 1500) -> dict:
+    """Button settings for the wearer's chosen way of activating things.
+
+    Spread into any Button that can be pressed. Never changes *whether*
+    something can be activated, only how — there is no value here that
+    makes looking at a control enough.
+    """
+    if activation == "dwell":
+        return {
+            "dwell_time": int(dwell_ms),
+            "use_fill_dwell": True,
+        }
+    return {
+        # Long enough that resting your eyes on something never presses
+        # it. The double blink still fires the same signal.
+        "dwell_time": DWELL_OFF_MS,
+        "use_fill_dwell": False,
+    }
+
+
 def outline(color_start: str = GLOW_START, color_end: str = GLOW_END) -> dict:
     """Border settings for anything outlined.
 
