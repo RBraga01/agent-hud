@@ -151,10 +151,14 @@ _OUTCOMES = {
 }
 
 
+DEVICE_HEADER = "X-Agent-Hud-Device"
+
+
 def send_feedback(
     base_url: str,
     feedback: Feedback,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    device_token: str = "",
 ) -> SendResult:
     """Send one answer. Never raises.
 
@@ -179,7 +183,13 @@ def send_feedback(
 
     try:
         response = requests.post(
-            url, json=feedback.body(), timeout=timeout, stream=True
+            url,
+            json=feedback.body(),
+            timeout=timeout,
+            stream=True,
+            headers=(
+                {DEVICE_HEADER: device_token} if device_token else {}
+            ),
         )
     except requests.RequestException as exc:
         return SendResult(

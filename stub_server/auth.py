@@ -28,6 +28,7 @@ something that does it automatically.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import time
@@ -48,6 +49,7 @@ CHALLENGE_SECONDS = 120
 FRESH_SECONDS = 5 * 60
 
 MAX_CREDENTIALS = 16
+MAX_DEVICES = 8
 
 
 class AuthUnavailable(RuntimeError):
@@ -78,6 +80,39 @@ class Credential:
     created_at: float
 
 
+@dataclass(frozen=True)
+class Device:
+    """A paired pair of glasses, or anything else that reads the list.
+
+    The glasses cannot do a passkey ceremony: there is no browser on them
+    and no sensor to prove anything with. So they get a token instead,
+    issued from Control by somebody who has just proved themselves, and
+    revocable there.
+
+    Only the hash is kept. The token itself is shown once, when it is
+    made, and after that this machine cannot produce it either -- so a
+    copy of this file is not a way in.
+
+    Attributes:
+        device_id: What Control lists it as.
+        token_hash: The hash of the token. Never the token.
+        name: What the person called it.
+        created_at: When it was paired.
+        last_seen: When it last asked for anything, or None.
+    """
+
+    device_id: str
+    token_hash: str
+    name: str
+    created_at: float
+    last_seen: float | None = None
+
+
+def hash_token(token: str) -> str:
+    """How a device token is stored. One way, on purpose."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @dataclass
 class Session:
     token: str
@@ -100,6 +135,7 @@ class AuthStore:
 
     path: Path | None = None
     credentials: dict[str, Credential] = field(default_factory=dict)
+    devices: dict[str, Device] = field(default_factory=dict)
     _sessions: dict[str, Session] = field(default_factory=dict)
     _challenges: dict[str, tuple[bytes, float]] = field(default_factory=dict)
 
@@ -132,6 +168,21 @@ class AuthStore:
                 continue
             self.credentials[credential.credential_id] = credential
 
+        for entry in raw.get("devices", []):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                device = Device(
+                    device_id=str(entry["device_id"]),
+                    token_hash=str(entry["token_hash"]),
+                    name=str(entry.get("name", "device")),
+                    created_at=float(entry.get("created_at", 0.0)),
+                    last_seen=entry.get("last_seen"),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            self.devices[device.device_id] = device
+
     def save(self) -> None:
         if self.path is None:
             return
@@ -145,7 +196,17 @@ class AuthStore:
                     "created_at": c.created_at,
                 }
                 for c in self.credentials.values()
-            ]
+            ],
+            "devices": [
+                {
+                    "device_id": d.device_id,
+                    "token_hash": d.token_hash,
+                    "name": d.name,
+                    "created_at": d.created_at,
+                    "last_seen": d.last_seen,
+                }
+                for d in self.devices.values()
+            ],
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +235,66 @@ class AuthStore:
     @property
     def has_credentials(self) -> bool:
         return bool(self.credentials)
+
+    # -- paired devices -------------------------------------------------
+
+    def pair_device(self, name: str, *, now: float | None = None) -> tuple[Device, str]:
+        """Issue a token for a new device. Returns it once, and never again.
+
+        The token is what the glasses will send. Only its hash is kept, so
+        somebody who reads this gateway's credential file learns nothing
+        they could use.
+        """
+        moment = time.time() if now is None else now
+        if len(self.devices) >= MAX_DEVICES:
+            oldest = min(self.devices.values(), key=lambda d: d.created_at)
+            del self.devices[oldest.device_id]
+
+        token = secrets.token_urlsafe(32)
+        device = Device(
+            device_id=secrets.token_hex(8),
+            token_hash=hash_token(token),
+            name=(name or "Raven Prism")[:40],
+            created_at=moment,
+        )
+        self.devices[device.device_id] = device
+        self.save()
+        return device, token
+
+    def device_for(self, token: str | None, *, now: float | None = None):
+        """The device that token belongs to, or None.
+
+        Compared by hash and in constant time, so a wrong token teaches
+        nothing about how wrong it was.
+        """
+        if not token:
+            return None
+        wanted = hash_token(token)
+        for device in self.devices.values():
+            if secrets.compare_digest(device.token_hash, wanted):
+                moment = time.time() if now is None else now
+                self.devices[device.device_id] = _replace_device(device, moment)
+                return self.devices[device.device_id]
+        return None
+
+    def revoke_device(self, device_id: str) -> bool:
+        if device_id not in self.devices:
+            return False
+        del self.devices[device_id]
+        self.save()
+        return True
+
+    def devices_payload(self) -> list[dict]:
+        """What Control lists. No token, and nothing derived from one."""
+        return [
+            {
+                "device_id": d.device_id,
+                "name": d.name,
+                "created_at": d.created_at,
+                "last_seen": d.last_seen,
+            }
+            for d in sorted(self.devices.values(), key=lambda d: d.created_at)
+        ]
 
     # -- challenges -----------------------------------------------------
 
@@ -236,6 +357,12 @@ class AuthStore:
 
     def close_all(self) -> None:
         self._sessions.clear()
+
+
+def _replace_device(device: Device, seen: float) -> Device:
+    from dataclasses import replace as _replace
+
+    return _replace(device, last_seen=seen)
 
 
 def library_available() -> bool:

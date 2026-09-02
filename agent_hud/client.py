@@ -51,8 +51,13 @@ class FetchResult:
     truncated: int = 0
 
 
+DEVICE_HEADER = "X-Agent-Hud-Device"
+
+
 def fetch_tasks(
-    url: str, timeout: float = DEFAULT_TIMEOUT_SECONDS
+    url: str,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    device_token: str = "",
 ) -> FetchResult:
     """Ask the gateway for the current list.
 
@@ -70,7 +75,14 @@ def fetch_tasks(
     another way the gateway can be unusable.
     """
     try:
-        response = requests.get(url, timeout=timeout, stream=True)
+        response = requests.get(
+            url,
+            timeout=timeout,
+            stream=True,
+            headers=(
+                {DEVICE_HEADER: device_token} if device_token else {}
+            ),
+        )
     except requests.RequestException as exc:
         return FetchResult(ok=False, reason=f"could not reach gateway: {exc}")
 

@@ -52,6 +52,7 @@ AUDIO_SUFFIX = "/audio"
 DRAFTS_PATH = "/drafts"
 AUTH_PREFIX = "/auth/"
 SESSION_COOKIE = "agent_hud_session"
+DEVICE_HEADER = "X-Agent-Hud-Device"
 
 CONTROL_DIR = Path(__file__).parent.parent / "control"
 
@@ -106,6 +107,14 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return True
         if path in ("/", CONTROL_PREFIX.rstrip("/")):
             return True
+
+        # A paired device -- the glasses -- carries a token instead of a
+        # session, because there is no browser on them and no sensor to
+        # prove anything with. It is issued from Control by somebody who
+        # has just proved themselves, and revoked there.
+        if self.server.auth.device_for(self.headers.get(DEVICE_HEADER)):
+            return True
+
         return self.server.auth.is_signed_in(self._session_token())
 
     def _rp(self) -> tuple[str, str]:
@@ -121,24 +130,30 @@ class _TasksHandler(BaseHTTPRequestHandler):
         return name, f"{scheme}://{host}"
 
     def _handle_auth(self, path: str) -> None:
-        """The sign-in ceremony. Nothing here reads or changes your work."""
+        """The sign-in ceremony, and pairing a device.
+
+        Nothing here reads or changes your work. It is the only part of
+        the gateway that stays open when the lock is on, because
+        otherwise there would be no way in.
+        """
         what = path[len(AUTH_PREFIX):]
         store = self.server.auth
         rp_id, origin = self._rp()
 
-        if what == "state":
-            self._respond(
-                200,
-                {
-                    "required": self.server.require_auth,
-                    "available": library_available(),
-                    "registered": store.has_credentials,
-                    "signed_in": store.is_signed_in(self._session_token()),
-                },
-            )
-            return
-
         try:
+            if what == "state":
+                self._respond(
+                    200,
+                    {
+                        "required": self.server.require_auth,
+                        "available": library_available(),
+                        "registered": store.has_credentials,
+                        "signed_in": store.is_signed_in(self._session_token()),
+                        "devices": len(store.devices),
+                    },
+                )
+                return
+
             if what == "register/options":
                 # Only before the first passkey exists, or from a session
                 # that has proved itself recently. Otherwise anyone who
@@ -148,18 +163,14 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 ):
                     self._respond(403, {"error": "sign in again to add a device"})
                     return
-                self._respond(200, registration_options(
-                    store, rp_id=rp_id, origin=origin
-                ))
+                self._respond(
+                    200, registration_options(store, rp_id=rp_id, origin=origin)
+                )
                 return
 
             if what == "register":
-                body = self._body(MAX_REQUEST_BYTES)
-                if body is None:
-                    return
-                payload = json.loads(body or b"null")
-                if not isinstance(payload, dict):
-                    self._respond(400, {"error": "body is not an object"})
+                payload = self._json_body()
+                if payload is None:
                     return
                 if store.has_credentials and not store.is_fresh(
                     self._session_token()
@@ -181,12 +192,8 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 return
 
             if what == "login":
-                body = self._body(MAX_REQUEST_BYTES)
-                if body is None:
-                    return
-                payload = json.loads(body or b"null")
-                if not isinstance(payload, dict):
-                    self._respond(400, {"error": "body is not an object"})
+                payload = self._json_body()
+                if payload is None:
                     return
                 token = verify_authentication(
                     store,
@@ -202,6 +209,39 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 self._respond(200, {"signed_in": False}, session="")
                 return
 
+            if what == "devices":
+                self._respond(200, {"devices": store.devices_payload()})
+                return
+
+            if what == "devices/pair":
+                # Pairing hands out a credential, so it wants a recent
+                # proof rather than just a live session.
+                if not self._may_administer():
+                    return
+                payload = self._json_body(allow_empty=True) or {}
+                device, token = store.pair_device(
+                    str(payload.get("name", "")) or "Raven Prism"
+                )
+                # Shown once. This gateway keeps only the hash, so it
+                # cannot produce the token again -- and a copy of its
+                # credential file is not a way in.
+                self._respond(
+                    200,
+                    {
+                        "device_id": device.device_id,
+                        "name": device.name,
+                        "token": token,
+                    },
+                )
+                return
+
+            if what.startswith("devices/revoke/"):
+                if not self._may_administer():
+                    return
+                removed = store.revoke_device(what[len("devices/revoke/"):])
+                self._respond(200 if removed else 404, {"revoked": removed})
+                return
+
         except AuthUnavailable as exc:
             self._respond(501, {"error": str(exc)})
             return
@@ -209,12 +249,51 @@ class _TasksHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": str(exc)})
             return
         except Exception:
-            # A ceremony that fails verification must say no and nothing
-            # more. The reason is for the log, not for whoever asked.
+            # A ceremony that fails verification says no and nothing more.
+            # The reason is for the log, not for whoever asked.
             self._respond(401, {"error": "that did not check out"})
             return
 
         self._respond(404, {"error": "not found"})
+
+    def _may_administer(self) -> bool:
+        """Whether this request may pair or revoke a device.
+
+        Needs a *recent* sign-in, not just a live session: somebody who
+        picks up an unlocked phone should not be able to quietly pair
+        their own glasses or unpair yours. Answers on its own when not.
+
+        The exception is a gateway with no passkey registered yet. There
+        has to be a way to set the first device up, and until somebody
+        has registered a key there is nothing to prove and nobody to
+        prove it to -- the same opening the first passkey registration
+        uses, closing the moment either one is done.
+        """
+        if not self.server.require_auth:
+            return True
+        if not self.server.auth.has_credentials:
+            return True
+        if self.server.auth.is_fresh(self._session_token()):
+            return True
+        self._respond(403, {"error": "sign in again to manage devices"})
+        return False
+
+    def _json_body(self, *, allow_empty: bool = False):
+        """Read a JSON object body, or answer and return None."""
+        body = self._body(MAX_REQUEST_BYTES)
+        if body is None:
+            return None
+        try:
+            payload = json.loads(body or b"null")
+        except ValueError:
+            self._respond(400, {"error": "body is not JSON"})
+            return None
+        if payload is None and allow_empty:
+            return {}
+        if not isinstance(payload, dict):
+            self._respond(400, {"error": "body is not an object"})
+            return None
+        return payload
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
@@ -241,6 +320,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             # ignore everything here they were not asked about.
             payload["gateway_name"] = self.server.gateway_name
             payload["device_last_seen"] = self.server.device_last_seen
+            payload["devices"] = self.server.auth.devices_payload()
             payload["sources"] = self.server.sources
             # The display asks before drawing Audio as pressable, so
             # nobody records something that cannot be processed.

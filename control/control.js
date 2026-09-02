@@ -323,6 +323,66 @@ function renderTasks() {
   $("tasks-more").textContent = extra > 0 ? `+${extra} more` : "";
 }
 
+function renderDevices() {
+  const host = $("devices");
+  host.innerHTML = "";
+  const devices = state.settings?.devices || [];
+
+  if (!devices.length) {
+    host.append(
+      el(
+        "div",
+        "empty",
+        "Nothing paired. The glasses need a token to reach a locked gateway.",
+      ),
+    );
+    return;
+  }
+
+  devices.forEach((device) => {
+    const row = el("div", "row");
+    const icon = el("span", "icon", "\u25CE");
+    icon.setAttribute("aria-hidden", "true");
+
+    const body = el("div", "body");
+    body.append(
+      el("div", "name", device.name),
+      el(
+        "div",
+        "sub",
+        device.last_seen ? `Last seen ${relative(device.last_seen)}` : "Not seen yet",
+      ),
+    );
+
+    const revoke = el("button", "", "Revoke");
+    revoke.addEventListener("click", () => revokeDevice(device));
+
+    row.append(icon, body, revoke);
+    host.append(row);
+  });
+}
+
+async function pairDevice() {
+  const result = await post("/auth/devices/pair", { name: "Raven Prism" });
+  if (result.status !== 200) {
+    say(result.payload.error || "Could not pair a device.");
+    return;
+  }
+  // Shown once. The gateway keeps only a hash and cannot produce it again.
+  $("pair-token").value = result.payload.token;
+  $("pair-dialog").showModal();
+  refresh();
+}
+
+async function revokeDevice(device) {
+  $("confirm-what").textContent = `Revoke \u201C${device.name}\u201D?`;
+  state.pending = {
+    revokeDeviceId: device.device_id,
+    describe: device.name,
+  };
+  $("confirm-dialog").showModal();
+}
+
 function renderSources() {
   const host = $("sources");
   host.innerHTML = "";
@@ -397,6 +457,7 @@ function render() {
   renderAuth();
   if (state.auth?.required && !state.auth?.signed_in) return;
   renderStatus();
+  renderDevices();
   renderTasks();
   renderSources();
   renderSettings();
@@ -503,6 +564,22 @@ async function sendPending() {
   if (!pending) return;
   state.pending = null;
 
+  // Revoking is not an answer to an agent, so it does not go through the
+  // feedback door -- but it is destructive, so it uses the same
+  // confirmation the actions do.
+  if (pending.revokeDeviceId) {
+    const revoked = await post(
+      `/auth/devices/revoke/${encodeURIComponent(pending.revokeDeviceId)}`,
+    );
+    say(
+      revoked.status === 200
+        ? "Revoked. Those glasses will need pairing again."
+        : revoked.payload.error || "Could not revoke that device.",
+    );
+    await refresh();
+    return;
+  }
+
   let result;
   try {
     // A draft the gateway is holding goes through its own door, so it is
@@ -591,6 +668,21 @@ $("confirm-ok").addEventListener("click", () => {
   sendPending();
 });
 $("draft-send").addEventListener("click", askToConfirmDraft);
+$("pair-device").addEventListener("click", pairDevice);
+$("pair-close").addEventListener("click", () => {
+  // Clear it from the page as well as the dialog: there is no reason for
+  // it to sit in the DOM once it has been read.
+  $("pair-token").value = "";
+  $("pair-dialog").close();
+});
+$("pair-copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("pair-token").value);
+    $("pair-copy").textContent = "Copied";
+  } catch {
+    $("pair-token").select();
+  }
+});
 $("draft-discard").addEventListener("click", discardDraft);
 
 refresh();

@@ -246,10 +246,9 @@ dialog p { color: var(--dim); margin: 0 0 4px; }
 
   <section id="devices-card">
     <h2>Devices</h2>
-    <div class="row">
-      <span class="icon" aria-hidden="true">&#9678;</span>
-      <div class="body"><div class="name">Raven Prism</div></div>
-      <span class="state" id="device-seen">&mdash;</span>
+    <div id="devices"><div class="empty">Loading&hellip;</div></div>
+    <div class="buttons">
+      <button id="pair-device">Pair a device</button>
     </div>
   </section>
 
@@ -274,6 +273,21 @@ dialog p { color: var(--dim); margin: 0 0 4px; }
   <p id="dlg-detail" style="color:var(--text); white-space:pre-wrap; margin:12px 0"></p>
   <div class="buttons" id="dlg-actions"></div>
   <div class="buttons"><button id="dlg-close">Close</button></div>
+</dialog>
+
+<dialog id="pair-dialog">
+  <h3>Paired</h3>
+  <p>Put this on the glasses, as <code>AGENT_HUD_DEVICE_TOKEN</code>. It is
+     shown once &mdash; this gateway keeps only a hash of it and cannot show
+     it again.</p>
+  <div class="draft" style="margin-top:12px">
+    <textarea id="pair-token" readonly rows="3"
+              aria-label="Device token"></textarea>
+  </div>
+  <div class="buttons">
+    <button id="pair-copy">Copy</button>
+    <button id="pair-close" class="primary">Done</button>
+  </div>
 </dialog>
 
 <dialog id="confirm-dialog">

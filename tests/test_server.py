@@ -842,3 +842,166 @@ def test_a_ceremony_that_does_not_check_out_says_only_no(locked_gateway):
     assert response.status_code in expected
     # Nothing about why, beyond that it did not.
     assert "traceback" not in response.text.lower()
+
+
+# --- pairing the glasses ----------------------------------------------
+#
+# The glasses cannot do a passkey ceremony: no browser, no sensor to
+# prove anything with. Without a way to pair them, turning the lock on
+# would lock them out of their own gateway -- which is exactly what it
+# did before this existed.
+
+
+def _pair(base, name="Raven Prism"):
+    return requests.post(f"{base}/auth/devices/pair", json={"name": name}, timeout=5)
+
+
+def test_locking_the_gateway_used_to_lock_the_glasses_out(locked_gateway):
+    """The bug this closes, kept as a test so it cannot come back."""
+    from agent_hud.client import fetch_tasks
+
+    base, _ = locked_gateway
+
+    assert fetch_tasks(f"{base}/tasks", timeout=3).ok is False
+
+
+def test_a_paired_device_gets_in(locked_gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = locked_gateway
+    token = _pair(base).json()["token"]
+
+    result = fetch_tasks(f"{base}/tasks", timeout=3, device_token=token)
+
+    assert result.ok is True
+
+
+def test_a_paired_device_can_answer_too(locked_gateway):
+    from agent_hud.feedback import Feedback, SendOutcome, send_feedback
+
+    base, _ = locked_gateway
+    token = _pair(base).json()["token"]
+
+    result = send_feedback(
+        base,
+        Feedback(task_id="task-17", revision=4, action_id="approve",
+                 request_id="req-paired"),
+        timeout=3,
+        device_token=token,
+    )
+
+    assert result.outcome is SendOutcome.ACCEPTED
+
+
+def test_an_invented_token_does_not_get_in(locked_gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = locked_gateway
+    _pair(base)
+
+    assert fetch_tasks(f"{base}/tasks", timeout=3, device_token="made-up").ok is False
+
+
+def test_the_token_is_shown_once_and_never_stored(locked_gateway):
+    """Only its hash is kept, so a copy of the credential file is not a
+    way in."""
+    base, server = locked_gateway
+
+    token = _pair(base).json()["token"]
+
+    assert token
+    stored = next(iter(server.auth.devices.values()))
+    assert token not in stored.token_hash
+    assert stored.token_hash != token
+    # And nothing anywhere else hands it back.
+    listed = _get(base, "/auth/devices").json()["devices"]
+    assert "token" not in listed[0]
+    assert token not in _get(base, "/auth/devices").text
+
+
+def test_a_revoked_device_stops_getting_in(locked_gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = locked_gateway
+    paired = _pair(base).json()
+    token = paired["token"]
+    assert fetch_tasks(f"{base}/tasks", timeout=3, device_token=token).ok is True
+
+    requests.post(
+        f"{base}/auth/devices/revoke/{paired['device_id']}", timeout=5
+    )
+
+    assert fetch_tasks(f"{base}/tasks", timeout=3, device_token=token).ok is False
+
+
+def test_a_paired_device_is_listed_without_its_token(locked_gateway):
+    base, _ = locked_gateway
+    _pair(base, name="My glasses")
+
+    devices = _get(base, "/auth/devices").json()["devices"]
+
+    assert devices[0]["name"] == "My glasses"
+    assert set(devices[0]) == {"device_id", "name", "created_at", "last_seen"}
+
+
+def test_using_a_device_records_that_it_was_around(locked_gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = locked_gateway
+    token = _pair(base).json()["token"]
+    assert _get(base, "/auth/devices").json()["devices"][0]["last_seen"] is None
+
+    fetch_tasks(f"{base}/tasks", timeout=3, device_token=token)
+
+    assert _get(base, "/auth/devices").json()["devices"][0]["last_seen"] is not None
+
+
+def test_pairing_needs_a_recent_sign_in_once_a_passkey_exists(locked_gateway):
+    """Somebody who picks up an unlocked phone must not be able to pair
+    their own glasses to your gateway."""
+    from stub_server.auth import Credential
+
+    base, server = locked_gateway
+    server.auth.add(
+        Credential(credential_id="existing", public_key="k", sign_count=0,
+                   name="phone", created_at=0.0)
+    )
+
+    assert _pair(base).status_code == 403
+
+    stale = server.auth.open_session(now=0.0)
+    response = requests.post(
+        f"{base}/auth/devices/pair",
+        json={"name": "theirs"},
+        headers={"Cookie": f"agent_hud_session={stale}"},
+        timeout=5,
+    )
+    assert response.status_code == 403
+
+
+def test_revoking_needs_a_recent_sign_in_too(locked_gateway):
+    from stub_server.auth import Credential
+
+    base, server = locked_gateway
+    paired = _pair(base).json()
+    server.auth.add(
+        Credential(credential_id="existing", public_key="k", sign_count=0,
+                   name="phone", created_at=0.0)
+    )
+
+    response = requests.post(
+        f"{base}/auth/devices/revoke/{paired['device_id']}", timeout=5
+    )
+
+    assert response.status_code == 403
+
+
+def test_an_unlocked_gateway_does_not_ask_for_any_of_this(gateway):
+    # Pairing is what makes locking usable; it is not a thing to make
+    # somebody do before they have locked anything.
+    from agent_hud.client import fetch_tasks
+
+    base, _ = gateway
+
+    assert fetch_tasks(f"{base}/tasks", timeout=3).ok is True
+    assert _pair(base).status_code == 200

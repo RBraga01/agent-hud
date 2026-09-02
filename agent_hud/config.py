@@ -36,6 +36,7 @@ _ACTIVE_GATEWAY_VAR = "AGENT_HUD_ACTIVE_GATEWAY"
 _TRANSCRIBER_VAR = "AGENT_HUD_TRANSCRIBER"
 _REQUIRE_AUTH_VAR = "AGENT_HUD_REQUIRE_AUTH"
 _AUTH_PATH_VAR = "AGENT_HUD_AUTH_FILE"
+_DEVICE_TOKEN_VAR = "AGENT_HUD_DEVICE_TOKEN"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -82,6 +83,9 @@ class Settings:
     # Whether the gateway asks for a passkey. Off by default, which
     # is only defensible because it will not listen off loopback.
     require_auth: bool = False
+    # What this pair of glasses shows a locked gateway. Issued from
+    # Control when the device is paired, and revocable there.
+    device_token: str = ""
     auth_path: Path = field(
         default_factory=lambda: Path.home() / ".agent-hud" / "passkeys.json"
     )
@@ -238,6 +242,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         transcriber=source.get(_TRANSCRIBER_VAR, "").strip(),
         require_auth=source.get(_REQUIRE_AUTH_VAR, "").strip().lower()
         in _TRUE_WORDS,
+        device_token=source.get(_DEVICE_TOKEN_VAR, "").strip(),
         auth_path=Path(
             source.get(_AUTH_PATH_VAR, "").strip()
             or (Path.home() / ".agent-hud" / "passkeys.json")

@@ -93,6 +93,16 @@ AGENT_HUD_REQUIRE_AUTH=1 python -m stub_server.server
 
 Then open Control, register the device you are holding, and that device becomes the key. After that nothing of yours is readable and nothing can be answered without it.
 
+**The glasses get paired, not signed in.** There is no browser on them and no sensor to prove anything with, so they cannot do a passkey ceremony. Instead you pair them from Control, which issues one token:
+
+```bash
+AGENT_HUD_DEVICE_TOKEN=<the token Control showed you> python main.py
+```
+
+It is shown once. The gateway keeps only a hash of it, so it cannot show it to you again and a copy of its credential file is not a way in. Control lists what is paired, when each was last seen, and can revoke any of them — a revoked pair of glasses stops getting in immediately and has to be paired again.
+
+Pairing and revoking need a *recent* sign-in, not just a live session, for the same reason adding a passkey does. The one exception is a gateway where no passkey exists yet: there has to be a way to set the first device up, and that opening closes the moment either one is done.
+
 **Passkeys, not passwords.** Your phone or laptop keeps a private key and proves it holds it. What arrives at the gateway is a public key and a signature. There is no password to choose, reuse, forget or phish, and nothing on the gateway's disk worth stealing.
 
 **No fingerprint or face ever reaches the gateway.** The sensor on your own device unlocks the key there. The gateway is not told which you used, is not told whether you used one at all, and has nowhere to put one if it were.
@@ -245,6 +255,7 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_TRANSCRIBER` | none | Speech engine for the gateway. `none` or `faster-whisper` |
 | `AGENT_HUD_REQUIRE_AUTH` | off | Ask for a passkey before the gateway says anything |
 | `AGENT_HUD_AUTH_FILE` | `~/.agent-hud/passkeys.json` | Where registered public keys are kept |
+| `AGENT_HUD_DEVICE_TOKEN` | — | What these glasses show a locked gateway. Paired from Control |
 
 They are read straight from the environment. Set them before running:
 

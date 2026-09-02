@@ -120,9 +120,21 @@ Three things about `auth.py` worth keeping true:
   out is the safe direction to fail in. Making somebody re-register their
   phone on every reboot would train them to click through it.
 
-Administration — adding a passkey, revoking one — needs a *recent* sign
-in, not just a live session. Somebody who picks up an unlocked phone
-should not be able to quietly unpair the glasses.
+The glasses are **paired**, not signed in: no browser, no sensor, so no
+passkey ceremony is possible. They carry a token issued from Control and
+sent as `X-Agent-Hud-Device`. Only its hash is stored, so a copy of the
+credential file is not a way in, and it is compared in constant time.
+
+That pairing exists because of a real bug: turning the lock on used to
+lock the glasses out of their own gateway entirely. `test_locking_the_
+gateway_used_to_lock_the_glasses_out` keeps that from coming back.
+
+Administration — adding a passkey, pairing or revoking a device — needs a
+*recent* sign in, not just a live session. Somebody who picks up an
+unlocked phone should not be able to quietly pair their own glasses or
+unpair yours. The single exception is a gateway with no passkey yet:
+there has to be a way to set the first device up, and that opening closes
+the moment one is registered.
 
 ## The recording is never kept
 

@@ -504,7 +504,13 @@ class AgentHud(RavenApp):
         tests, where a synchronous fetch against a local stub is what the
         assertions expect.
         """
-        self.apply(self._fetch(self.gateway.url, DEFAULT_TIMEOUT_SECONDS))
+        self.apply(
+            self._fetch(
+                self.gateway.url,
+                DEFAULT_TIMEOUT_SECONDS,
+                self._settings.device_token,
+            )
+        )
 
     # -- drawing --------------------------------------------------------
 
@@ -808,8 +814,10 @@ class AgentHud(RavenApp):
 
         url = self.gateway.url
 
+        token = self._settings.device_token
+
         def work() -> None:
-            self._pending = self._fetch(url, DEFAULT_TIMEOUT_SECONDS)
+            self._pending = self._fetch(url, DEFAULT_TIMEOUT_SECONDS, token)
 
         # The completion callback takes no arguments and the worker's return
         # value is discarded — the framework's own documentation says
@@ -946,7 +954,10 @@ class AgentHud(RavenApp):
 
         def work() -> None:
             self._send_result = self._send(
-                self.gateway.base, outgoing, DEFAULT_TIMEOUT_SECONDS
+                self.gateway.base,
+                outgoing,
+                DEFAULT_TIMEOUT_SECONDS,
+                self._settings.device_token,
             )
 
         self._async.run(work, on_complete=self._apply_send_result)

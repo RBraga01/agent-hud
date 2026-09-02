@@ -89,7 +89,7 @@ def make_hud(qapp, tasks=(), ok=True):
     result = FetchResult(tasks=list(tasks), ok=ok, reason="" if ok else "test")
     hud = AgentHud(
         settings=SETTINGS,
-        fetch=lambda url, timeout: result,
+        fetch=lambda url, timeout, token='': result,
         gaze=lambda: None,
         clock=lambda: 0.0,
         auto_start=False,
@@ -181,7 +181,11 @@ def test_a_task_with_no_actions_has_no_way_into_the_menu(qapp):
 def test_choosing_an_action_opens_confirmation_and_sends_nothing(qapp):
     calls = []
     hud = make_hud(qapp, tasks=[WAITING])
-    hud._fetch = lambda url, timeout: (calls.append(1), FetchResult(ok=True))[1]
+    def counting_fetch(url, timeout, token=""):
+        calls.append(1)
+        return FetchResult(ok=True)
+
+    hud._fetch = counting_fetch
     open_detail(qapp, hud, "a")
     hud.take_action()
 
@@ -479,7 +483,7 @@ def test_a_slow_fetch_does_not_pile_up(qapp):
     started = []
     release = threading.Event()
 
-    def slow_fetch(url, timeout):
+    def slow_fetch(url, timeout, token=''):
         started.append(1)
         release.wait(3)
         return FetchResult(tasks=[WAITING], ok=True)
@@ -516,7 +520,7 @@ def test_a_slow_fetch_does_not_pile_up(qapp):
 def test_the_guard_clears_so_later_polls_still_happen(qapp):
     calls = []
 
-    def fetch(url, timeout):
+    def fetch(url, timeout, token=''):
         calls.append(1)
         return FetchResult(tasks=[WAITING], ok=True)
 
@@ -547,7 +551,7 @@ def test_construction_does_not_block_on_a_slow_first_fetch(qapp):
     release = threading.Event()
     started = []
 
-    def slow_fetch(url, timeout):
+    def slow_fetch(url, timeout, token=''):
         started.append(1)
         release.wait(2)
         return FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True)
@@ -588,7 +592,7 @@ def make_animated_hud(qapp, tasks=()):
     result = FetchResult(tasks=list(tasks), ok=True)
     hud = AgentHud(
         settings=ANIM,
-        fetch=lambda url, timeout: result,
+        fetch=lambda url, timeout, token='': result,
         gaze=lambda: None,
         clock=lambda: 0.0,
         auto_start=False,
@@ -667,7 +671,7 @@ from agent_hud.screens import SendState  # noqa: E402
 def make_sending_hud(qapp, outcome=SendOutcome.ACCEPTED, reason="", record=None):
     """A HUD whose gateway answers a send in a known way."""
 
-    def send(base, feedback, timeout=None):
+    def send(base, feedback, timeout=None, token=''):
         if record is not None:
             record.append(feedback)
         return SendResult(
@@ -677,7 +681,7 @@ def make_sending_hud(qapp, outcome=SendOutcome.ACCEPTED, reason="", record=None)
     result = FetchResult(tasks=[WAITING], ok=True)
     hud = AgentHud(
         settings=SETTINGS,
-        fetch=lambda url, timeout: result,
+        fetch=lambda url, timeout, token='': result,
         send=send,
         gaze=lambda: None,
         clock=lambda: 0.0,
@@ -850,13 +854,13 @@ def test_the_display_does_not_freeze_while_an_answer_is_in_flight(qapp):
 
     release = threading.Event()
 
-    def slow_send(base, feedback, timeout=None):
+    def slow_send(base, feedback, timeout=None, token=''):
         release.wait(2)
         return SendResult(outcome=SendOutcome.ACCEPTED, request_id=feedback.request_id)
 
     result = FetchResult(tasks=[WAITING], ok=True)
     hud = AgentHud(
-        settings=SETTINGS, fetch=lambda u, t: result, send=slow_send,
+        settings=SETTINGS, fetch=lambda u, t, token='': result, send=slow_send,
         gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -948,7 +952,7 @@ def test_the_glasses_never_switch_gateway_on_their_own(qapp):
     """
     result = FetchResult(tasks=[], ok=False, reason="down")
     hud = AgentHud(
-        settings=PAIRED, fetch=lambda url, timeout: result, gaze=lambda: None,
+        settings=PAIRED, fetch=lambda url, timeout, token='': result, gaze=lambda: None,
         clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -962,7 +966,7 @@ def test_the_glasses_never_switch_gateway_on_their_own(qapp):
 def test_switching_is_something_the_wearer_does(qapp):
     result = FetchResult(tasks=[], ok=False, reason="down")
     hud = AgentHud(
-        settings=PAIRED, fetch=lambda url, timeout: result, gaze=lambda: None,
+        settings=PAIRED, fetch=lambda url, timeout, token='': result, gaze=lambda: None,
         clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -978,7 +982,7 @@ def test_switching_throws_away_the_other_environments_tasks(qapp):
     # Home's work must not still be on screen under Work's name.
     hud = AgentHud(
         settings=PAIRED,
-        fetch=lambda url, timeout: FetchResult(tasks=[WAITING], ok=True),
+        fetch=lambda url, timeout, token='': FetchResult(tasks=[WAITING], ok=True),
         gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -993,7 +997,7 @@ def test_switching_throws_away_the_other_environments_tasks(qapp):
 def test_switching_to_something_unpaired_does_nothing(qapp):
     hud = AgentHud(
         settings=PAIRED,
-        fetch=lambda url, timeout: FetchResult(tasks=[WAITING], ok=True),
+        fetch=lambda url, timeout, token='': FetchResult(tasks=[WAITING], ok=True),
         gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -1007,7 +1011,7 @@ def test_it_asks_the_active_gateway_not_a_fixed_address(qapp):
     asked = []
     hud = AgentHud(
         settings=PAIRED,
-        fetch=lambda url, timeout: asked.append(url) or FetchResult(ok=True),
+        fetch=lambda url, timeout, token='': asked.append(url) or FetchResult(ok=True),
         gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
     )
     hud.refresh_now()
@@ -1094,7 +1098,7 @@ def make_speaking_hud(qapp, heard="rerun the tests", failure="", mic=None,
     def transcribe(audio):
         return heard, failure
 
-    def send(base, feedback, timeout=None):
+    def send(base, feedback, timeout=None, token=''):
         if sent is not None:
             sent.append(feedback)
         return SendResult(outcome=SendOutcome.ACCEPTED, request_id=feedback.request_id)
@@ -1102,7 +1106,7 @@ def make_speaking_hud(qapp, heard="rerun the tests", failure="", mic=None,
     result = FetchResult(tasks=[WAITING], ok=True)
     hud = AgentHud(
         settings=SETTINGS,
-        fetch=lambda url, timeout: result,
+        fetch=lambda url, timeout, token='': result,
         send=send,
         transcribe=transcribe,
         recorder=mic if mic is not None else FakeMic(),
