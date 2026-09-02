@@ -17,6 +17,7 @@ raven-framework/
 tests/
 stub_server/
 feeders/
+control/
 docs/
 integrations/
 .github/

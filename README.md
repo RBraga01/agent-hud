@@ -58,6 +58,26 @@ Two protections, guarding two different things:
 | `revision` | Answering a version of a task that no longer exists |
 | `request_id` | The same answer being carried out twice |
 
+## Agent HUD Control
+
+<img src="docs/control_phone.png" alt="Agent HUD Control on a phone" width="330" align="right">
+
+The gateway also serves a small web app, for a phone or any browser on the same machine. Start the gateway and open the address it prints, or go to `/control/`.
+
+It is the same gateway, the same endpoints and the same contract the glasses use. There are no phone-only actions and no second way to do anything, so nothing can drift apart.
+
+It shows what is waiting, lets you open a task and answer it, and lets you type a longer reply than would ever be reasonable on a headset. The same two rules apply: choosing an action opens a confirmation, and only the confirm button sends. "Sent" means the gateway took it.
+
+It keeps nothing. No task text in browser storage, no offline copy, no analytics, and no request to anything except your own gateway — which the page says out loud in a content security policy, so a browser enforces it even if the page is ever changed by mistake.
+
+<br clear="all">
+
+### It is not authenticated, so it stays on your machine
+
+The gateway binds to `127.0.0.1` and nothing else. There is no host argument and no way to ask it to listen elsewhere, because there is no authentication in front of it — it serves whatever your feeders report, and accepts answers, to anyone who can reach it.
+
+That is fine for something reachable only from the machine it runs on. It stops being fine the moment it is not. **Do not put this on a network or behind a tunnel until it has authentication.** The design for that is passkeys, so that no password and no biometric ever reaches the gateway — only a public key — but it is not built yet, and shipping a half-built lock would be worse than an honest open door.
+
 ## More than one gateway
 
 You might have one at home and one at work. They hold different tasks, different credentials and different settings, and neither needs to know the other exists. There is no account joining them and no service in the middle — the glasses are the only thing aware of both.

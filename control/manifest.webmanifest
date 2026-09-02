@@ -1,0 +1,11 @@
+{
+  "name": "Agent HUD Control",
+  "short_name": "Agent HUD",
+  "description": "Supervise your agents from a phone. Served by your own gateway; talks to nothing else.",
+  "start_url": "/control/",
+  "scope": "/control/",
+  "display": "standalone",
+  "background_color": "#080c14",
+  "theme_color": "#080c14",
+  "orientation": "portrait"
+}

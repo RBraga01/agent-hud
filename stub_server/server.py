@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +31,19 @@ from .policy import Policy
 
 TASKS_PATH = "/tasks"
 SETTINGS_PATH = "/settings"
+CONTROL_PREFIX = "/control/"
+
+CONTROL_DIR = Path(__file__).parent.parent / "control"
+
+# What a browser is allowed to be handed. Anything not listed is not
+# served, so a stray file in the folder cannot become a URL.
+_CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".webmanifest": "application/manifest+json",
+    ".png": "image/png",
+}
 FEEDBACK_SUFFIX = "/feedback"
 
 # The most a feedback request may be. The glasses send a few hundred
@@ -50,13 +64,33 @@ class _TasksHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
 
+        if path == "/" or path == CONTROL_PREFIX.rstrip("/"):
+            self._redirect(CONTROL_PREFIX)
+            return
+
+        if path.startswith(CONTROL_PREFIX):
+            self._serve_control(path[len(CONTROL_PREFIX):] or "index.html")
+            return
+
         if path == SETTINGS_PATH:
-            self._respond(200, to_payload(self.server.preferences))
+            payload = to_payload(self.server.preferences)
+            # What the Control shows about this gateway. The glasses
+            # ignore everything here they were not asked about.
+            payload["gateway_name"] = self.server.gateway_name
+            payload["device_last_seen"] = self.server.device_last_seen
+            payload["sources"] = self.server.sources
+            self._respond(200, payload)
             return
 
         if path != TASKS_PATH:
             self._respond(404, {"error": "not found"})
             return
+
+        # Any client asking for the list counts as the device being
+        # around. The development gateway has no pairing, so there is
+        # nothing better to go on and nothing is claimed beyond "somebody
+        # asked recently".
+        self.server.device_last_seen = int(time.time())
 
         try:
             tasks = self.server.policy.tasks()
@@ -105,6 +139,49 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         self._respond(status, payload)
 
+    def _redirect(self, where: str) -> None:
+        self.send_response(303)
+        self.send_header("Location", where)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _serve_control(self, name: str) -> None:
+        """Hand a browser one file from the control folder.
+
+        The name is taken apart and rebuilt rather than joined, so no
+        amount of dots or slashes in a request can reach outside the
+        folder. Only the handful of types above are served at all.
+        """
+        safe = Path(name).name  # drops any directory part, and "..​"
+        target = CONTROL_DIR / safe
+        content_type = _CONTENT_TYPES.get(target.suffix.lower())
+
+        if content_type is None or not target.is_file():
+            self._respond(404, {"error": "not found"})
+            return
+
+        try:
+            body = target.read_bytes()
+        except OSError:
+            self._respond(404, {"error": "not found"})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        # It talks to its own gateway and nothing else. Said out loud so a
+        # browser enforces it even if the page is ever changed by mistake.
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; base-uri 'none'; form-action 'none'",
+        )
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _respond(self, status: int, payload: object) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -123,7 +200,12 @@ class _TasksServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, address: tuple[str, int], provider: Callable[[], list]
+        self,
+        address: tuple[str, int],
+        provider: Callable[[], list],
+        *,
+        gateway_name: str = "this machine",
+        sources: list[dict] | None = None,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -131,11 +213,18 @@ class _TasksServer(ThreadingHTTPServer):
         # them. The Control app is what changes them, so this development
         # gateway simply serves a fixed, sensible set.
         self.preferences = Preferences(revision=1)
+        self.gateway_name = gateway_name
+        self.sources = list(sources or [])
+        self.device_last_seen: int | None = None
         super().__init__(address, _TasksHandler)
 
 
 def create_server(
-    provider: Callable[[], list], port: int = DEFAULT_PORT
+    provider: Callable[[], list],
+    port: int = DEFAULT_PORT,
+    *,
+    gateway_name: str = "this machine",
+    sources: list[dict] | None = None,
 ) -> _TasksServer:
     """Build a server bound to loopback.
 
@@ -143,7 +232,12 @@ def create_server(
         provider: Called on every request; returns the current list.
         port: Pass 0 to be given a free one.
     """
-    return _TasksServer((LOOPBACK_HOST, port), provider)
+    return _TasksServer(
+        (LOOPBACK_HOST, port),
+        provider,
+        gateway_name=gateway_name,
+        sources=sources,
+    )
 
 
 def main() -> None:
@@ -154,10 +248,17 @@ def main() -> None:
     settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
     server = create_server(
-        lambda: collect(settings, file_path=DEFAULT_DATA_PATH), port=port
+        lambda: collect(settings, file_path=DEFAULT_DATA_PATH),
+        port=port,
+        gateway_name=settings.active_gateway.name,
+        sources=[
+            {"name": name, "label": name.replace("_", " ").title(), "on": True}
+            for name in settings.feeders
+        ],
     )
     host, bound_port = server.server_address[:2]
     print(f"Stub gateway on http://{host}:{bound_port}{TASKS_PATH}")
+    print(f"Control on      http://{host}:{bound_port}{CONTROL_PREFIX}")
     print(f"Feeders: {', '.join(settings.feeders)}")
     if "file" in settings.feeders:
         print(f"Editing {DEFAULT_DATA_PATH} changes what the glasses show.")

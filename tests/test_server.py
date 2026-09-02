@@ -313,3 +313,114 @@ def test_the_preferences_it_serves_never_ask_for_gaze_activation(gateway):
     body = requests.get(f"{base}/settings", timeout=3).json()
 
     assert body["interaction"]["mode"] in ACTIVATION_MODES
+
+
+# --- the Control it serves --------------------------------------------
+
+
+def _get(base, path):
+    return requests.get(f"{base}{path}", timeout=3)
+
+
+def test_the_control_page_is_served(gateway):
+    base, _ = gateway
+
+    response = _get(base, "/control/")
+
+    assert response.status_code == 200
+    assert "Agent HUD Control" in response.text
+    assert response.headers["Content-Type"].startswith("text/html")
+
+
+def test_the_root_leads_to_the_control(gateway):
+    base, _ = gateway
+
+    assert _get(base, "/").status_code == 200
+
+
+def test_the_control_script_and_manifest_are_served(gateway):
+    base, _ = gateway
+
+    assert _get(base, "/control/control.js").status_code == 200
+    assert _get(base, "/control/manifest.webmanifest").status_code == 200
+
+
+def test_the_control_is_told_to_talk_to_nothing_else(gateway):
+    # Said out loud so a browser enforces it even if the page is ever
+    # changed by mistake.
+    base, _ = gateway
+
+    policy = _get(base, "/control/").headers["Content-Security-Policy"]
+
+    assert "default-src 'self'" in policy
+    assert "connect-src 'self'" in policy
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/control/../pyproject.toml",
+        "/control/..%2fpyproject.toml",
+        "/control/../../etc/passwd",
+        "/control/agents.json",
+        "/control/server.py",
+        "/control/nope.html",
+    ],
+)
+def test_nothing_outside_the_control_folder_can_be_reached(gateway, path):
+    base, _ = gateway
+
+    assert _get(base, path).status_code == 404
+
+
+def test_the_settings_response_tells_the_control_what_it_shows(gateway):
+    base, _ = gateway
+    body = _get(base, "/settings").json()
+
+    assert "gateway_name" in body
+    assert "sources" in body
+    assert "device_last_seen" in body
+
+
+def test_asking_for_the_task_list_counts_as_the_device_being_around(gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = gateway
+    assert _get(base, "/settings").json()["device_last_seen"] is None
+
+    fetch_tasks(f"{base}/tasks")
+
+    assert _get(base, "/settings").json()["device_last_seen"] is not None
+
+
+# --- it cannot be exposed by accident ---------------------------------
+
+
+def test_it_binds_only_to_loopback():
+    """The gateway has no authentication at all.
+
+    That is defensible while it is only reachable from the machine it
+    runs on, and indefensible the moment it is not. The address is not a
+    parameter, so there is no way to get this wrong by passing the wrong
+    argument.
+    """
+    from stub_server.server import LOOPBACK_HOST, create_server
+
+    server = create_server(lambda: [], port=0)
+    try:
+        assert server.server_address[0] == "127.0.0.1"
+        assert LOOPBACK_HOST == "127.0.0.1"
+    finally:
+        server.server_close()
+
+
+def test_there_is_no_way_to_ask_it_to_listen_elsewhere():
+    import inspect
+
+    from stub_server.server import create_server
+
+    parameters = set(inspect.signature(create_server).parameters)
+
+    assert "host" not in parameters
+    assert "address" not in parameters
+    assert "bind" not in parameters

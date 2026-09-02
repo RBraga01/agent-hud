@@ -32,6 +32,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
 | `stub_server/policy.py` | no | what that gateway will accept, and what it does about it |
+| `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
 | `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
 | `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
 
@@ -77,6 +78,27 @@ Anything unrecognised, and every 5xx, becomes `UNREACHABLE` rather than a failur
 Two protections travel with every answer and guard different things. **`revision`** stops someone answering a version of a task that has moved on; the gateway refuses it with 409 and the wearer is sent back to read it again. **`request_id`** is stable across retries, so an attempt that reached the gateway but lost its answer is recognised rather than carried out twice. Retry is offered for `UNREACHABLE` only: a refusal or a stale answer means the gateway heard us and said no, and asking again unchanged is just asking twice.
 
 The gateway checks every incoming answer against the actions **it** would have offered for that task, never against what the request claims. An agent cannot put an executable button on someone's face by naming one in a payload.
+
+## The gateway has no authentication
+
+It binds to `127.0.0.1`, there is no host parameter, and two tests make
+sure it stays that way. That is defensible while the only thing that can
+reach it is the machine it runs on, and indefensible the moment it is
+not: it serves whatever the feeders report and accepts answers, to
+anybody who asks.
+
+So: **do not add a host argument, a reverse proxy config, or a tunnel
+until there is authentication in front of it.** The design is passkeys,
+so that no password and no biometric ever reaches the gateway — only a
+public key — and it is not built. A half-built lock would be worse than
+an honest open door, because it would invite exactly the exposure it
+could not survive.
+
+The Control page carries a content security policy that confines it to
+its own origin, so a browser enforces "talks to nothing else" even if the
+page is later changed by mistake. Files are served from `control/` by
+basename only, and only for a short list of content types, so no amount
+of dots or slashes in a request reaches outside the folder.
 
 ## Two absences that are the design
 
