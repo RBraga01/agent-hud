@@ -126,3 +126,166 @@ def test_the_response_is_valid_json_the_client_can_parse(fixed_server):
     raw = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5).text
 
     assert json.loads(raw)["tasks"][0]["title"] == "One"
+
+
+# --- taking answers back ----------------------------------------------
+#
+# End to end: the real client talking to the real gateway. These are the
+# tests that would catch the two failures that matter -- claiming
+# something was sent when it was not, and doing it twice.
+
+
+TASK = {
+    "id": "task-17",
+    "revision": 4,
+    "source": "Claude",
+    "title": "Deploy production",
+    "summary": "Deployment needs approval",
+    "detail": "Waiting for your approval.",
+    "needs_you": True,
+    "actions": {
+        "primary": {"id": "approve", "label": "Approve"},
+        "secondary": {"id": "reject", "label": "Reject"},
+    },
+}
+
+
+@pytest.fixture
+def gateway():
+    """A real gateway whose task list a test can change between calls."""
+    from stub_server.server import create_server
+
+    state = {"tasks": [dict(TASK)]}
+    server = create_server(lambda: list(state["tasks"]), port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield base, state
+
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+def _answer(base, **over):
+    from agent_hud.feedback import Feedback, send_feedback
+
+    fields = {
+        "task_id": "task-17",
+        "revision": 4,
+        "action_id": "approve",
+        "request_id": "req-1",
+    }
+    fields.update(over)
+    return send_feedback(base, Feedback(**fields), timeout=3)
+
+
+def test_an_offered_action_is_accepted_end_to_end(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, _ = gateway
+
+    assert _answer(base).outcome is SendOutcome.ACCEPTED
+
+
+def test_an_action_the_gateway_never_offered_is_refused_end_to_end(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, _ = gateway
+
+    result = _answer(base, action_id="rm-rf")
+
+    assert result.outcome is SendOutcome.REJECTED
+    assert result.reason != ""
+
+
+def test_answering_a_version_that_moved_on_reads_as_stale(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, state = gateway
+    state["tasks"] = [dict(TASK, revision=9)]
+
+    assert _answer(base, revision=4).outcome is SendOutcome.STALE
+
+
+def test_a_retry_with_the_same_id_does_not_answer_twice(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, _ = gateway
+
+    first = _answer(base)
+    retry = _answer(base)
+
+    assert first.outcome is SendOutcome.ACCEPTED
+    assert retry.outcome is SendOutcome.ACCEPTED
+    assert retry.fields.get("replayed") is True
+
+
+def test_a_fresh_id_after_answering_is_refused_as_stale(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, _ = gateway
+    _answer(base)
+
+    assert _answer(base, request_id="req-2").outcome is SendOutcome.STALE
+
+
+def test_an_answered_task_comes_back_no_longer_needing_you(gateway):
+    from agent_hud.client import fetch_tasks
+
+    base, _ = gateway
+    _answer(base)
+
+    tasks = fetch_tasks(f"{base}/tasks").tasks
+
+    assert tasks[0].needs_you is False
+    assert tasks[0].has_actions is False
+    assert tasks[0].revision == 5
+
+
+def test_feedback_for_a_task_that_does_not_exist_is_refused(gateway):
+    from agent_hud.feedback import SendOutcome
+
+    base, _ = gateway
+
+    assert _answer(base, task_id="nope").outcome is SendOutcome.REJECTED
+
+
+def test_a_body_that_is_not_json_never_takes_the_gateway_down(gateway):
+    import urllib.error
+    import urllib.request
+
+    base, _ = gateway
+    req = urllib.request.Request(
+        f"{base}/tasks/task-17/feedback",
+        data=b"{ half written",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=3)
+        status = 200
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+
+    assert status == 400
+    # And it is still serving.
+    from agent_hud.client import fetch_tasks
+
+    assert fetch_tasks(f"{base}/tasks").ok is True
+
+
+def test_posting_somewhere_else_is_not_found(gateway):
+    import urllib.error
+    import urllib.request
+
+    base, _ = gateway
+    req = urllib.request.Request(f"{base}/tasks", data=b"{}", method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=3)
+        status = 200
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+
+    assert status == 404
