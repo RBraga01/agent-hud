@@ -31,21 +31,36 @@ INNER_WIDTH = CARD_WIDTH - s.CARD_MARGIN * 2
 def build_listening(
     task: Task,
     *,
+    seconds_left: int | None = None,
     on_done: Callable[[], None],
     on_cancel: Callable[[], None],
 ) -> VerticalContainer:
     """Recording. Says so plainly, because a microphone that is on should
-    never be a thing you have to infer."""
+    never be a thing you have to infer.
+
+    The screen says what actually happens: you press Done. It does not
+    claim to notice you stopping talking, because it cannot -- the
+    framework hands over the audio only when recording ends, so there is
+    no level to watch. What it does have is a cap, so a recording
+    somebody forgot about cannot run for ever.
+    """
     card = parts.card(CARD_WIDTH, spacing=10)
     card.add(parts.label("Listening", width=INNER_WIDTH))
     card.add(parts.title(task.title, width=INNER_WIDTH))
     card.add(
         parts.body(
-            "Say your reply. It stops on its own when you stop talking, "
-            "or press Done.",
+            "Say your reply, then press Done.",
             INNER_WIDTH,
         )
     )
+    if seconds_left is not None:
+        card.add(
+            parts.small(
+                f"Stops on its own in {seconds_left}s",
+                width=INNER_WIDTH,
+                align="left",
+            )
+        )
     card.add(
         parts.button_row(
             INNER_WIDTH,

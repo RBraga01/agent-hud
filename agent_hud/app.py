@@ -78,6 +78,13 @@ from .transitions import (
 # in the same spot whichever screen is showing.
 GAZE_TICK_MS = 200
 
+# The longest one dictated reply may run. Far longer than anybody
+# speaks into a pair of glasses in one go, and short enough that a
+# recording somebody walked away from does not run until the battery
+# does. The screen counts it down rather than stopping as a surprise.
+MAX_RECORDING_SECONDS = 60
+RECORDING_TICK_MS = 1000
+
 CLOCK_RIGHT_EDGE = 596
 CLOCK_Y = 22
 CLOCK_WIDTH = 120
@@ -173,6 +180,8 @@ class AgentHud(RavenApp):
         self._transcript = ""
         self._transcript_failure = ""
         self._transcribe_result: tuple[str, str] | None = None
+        self._recording_started: float | None = None
+        self._recording_routine: Routine | None = None
 
         # The answer in flight, if any. Kept on the instance so a redraw
         # cannot lose the request id a retry needs.
@@ -530,6 +539,7 @@ class AgentHud(RavenApp):
             self.gateway.name,
             self._transcript,
             self._transcript_failure,
+            self.seconds_left,
             self._fetching if self._nav.screen is Screen.UNAVAILABLE else False,
             None if task is None else (task.revision, task.title, task.summary),
             tuple((t.id, t.source, t.summary) for t in self.waiting),
@@ -596,7 +606,10 @@ class AgentHud(RavenApp):
                 if task is None
                 else self._place(
                     build_listening(
-                        task, on_done=self.stop_speaking, on_cancel=self.cancel
+                        task,
+                        seconds_left=self.seconds_left,
+                        on_done=self.stop_speaking,
+                        on_cancel=self.cancel,
                     )
                 )
             )
@@ -853,6 +866,8 @@ class AgentHud(RavenApp):
             try:
                 self._recorder.start()
                 self._recording = True
+                self._recording_started = self._clock()
+                self._start_recording_clock()
             except Exception:
                 # A microphone that will not start is not a reason to
                 # take the display down. Say so on the review screen.
@@ -869,6 +884,8 @@ class AgentHud(RavenApp):
         if self._nav.screen is not Screen.LISTENING:
             return
 
+        self._stop_recording_clock()
+
         audio = b""
         if self._recorder is not None and self._recording:
             try:
@@ -880,6 +897,44 @@ class AgentHud(RavenApp):
 
         self._fire(Event.CONFIRM)  # -> PROCESSING
         self._transcribe_in_background(audio)
+
+    @property
+    def seconds_left(self) -> int | None:
+        """How much recording time is left, or None when not recording."""
+        if self._recording_started is None:
+            return None
+        spent = self._clock() - self._recording_started
+        return max(0, int(MAX_RECORDING_SECONDS - spent))
+
+    def _start_recording_clock(self) -> None:
+        """Count the recording down, and stop it at the cap.
+
+        A visible countdown rather than a silent limit: a recording that
+        ended without saying so would look exactly like one that never
+        started.
+        """
+        self._recording_routine = Routine(
+            interval_ms=RECORDING_TICK_MS,
+            invoke=self._tick_recording,
+            mode="repeat",
+            parent=self,
+        )
+
+    def _stop_recording_clock(self) -> None:
+        if self._recording_routine is not None:
+            self._recording_routine.stop()
+            self._recording_routine = None
+        self._recording_started = None
+
+    def _tick_recording(self) -> None:
+        if self._nav.screen is not Screen.LISTENING:
+            self._stop_recording_clock()
+            return
+        if self.seconds_left == 0:
+            self.stop_speaking()
+            return
+        self._rendered = None  # the countdown changed
+        self._render()
 
     def send_transcript(self) -> None:
         """Send the words that were read back. The only step that sends."""

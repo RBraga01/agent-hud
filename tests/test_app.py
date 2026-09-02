@@ -1435,3 +1435,76 @@ def test_auto_scroll_does_nothing_on_a_screen_that_is_not_reading(qapp):
         hud.tick_gaze(gaze_position=(320, 600), now=float(step))
 
     assert hud.screen is Screen.ACTION_MENU
+
+
+# --- the recording does not run for ever ------------------------------
+
+
+def test_a_recording_counts_down(qapp):
+    clock = {"now": 0.0}
+    result = FetchResult(tasks=[WAITING], ok=True)
+    hud = AgentHud(
+        settings=SETTINGS, fetch=lambda u, t, token='': result,
+        transcribe=lambda audio: ("heard", ""),
+        recorder=FakeMic(), gaze=lambda: None,
+        clock=lambda: clock["now"], auto_start=False,
+    )
+    hud.refresh_now()
+    hud.apply_preferences({"revision": 1, "audio_available": True})
+    walk_to_menu(qapp, hud)
+
+    hud.start_speaking()
+    assert hud.seconds_left is not None
+
+    from agent_hud.app import MAX_RECORDING_SECONDS
+
+    clock["now"] = 10.0
+    assert hud.seconds_left == MAX_RECORDING_SECONDS - 10
+
+
+def test_the_countdown_reaches_zero_and_the_recording_stops(qapp):
+    from agent_hud.app import MAX_RECORDING_SECONDS
+
+    clock = {"now": 0.0}
+    result = FetchResult(tasks=[WAITING], ok=True)
+    hud = AgentHud(
+        settings=SETTINGS, fetch=lambda u, t, token='': result,
+        transcribe=lambda audio: ("heard", ""),
+        recorder=FakeMic(), gaze=lambda: None,
+        clock=lambda: clock["now"], auto_start=False,
+    )
+    hud.refresh_now()
+    hud.apply_preferences({"revision": 1, "audio_available": True})
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+
+    clock["now"] = MAX_RECORDING_SECONDS + 1
+    assert hud.seconds_left == 0
+
+    hud._tick_recording()
+    settle_audio(qapp, hud)
+
+    assert hud.screen is Screen.REVIEW
+
+
+def test_nothing_is_counting_down_when_nothing_is_recording(qapp):
+    hud = make_speaking_hud(qapp)
+
+    assert hud.seconds_left is None
+
+
+def test_the_listening_screen_does_not_claim_to_hear_you_stop(qapp):
+    """It says what it does.
+
+    Detecting silence needs live audio levels, and the framework hands
+    the bytes over only when recording ends. Claiming otherwise would be
+    exactly the kind of thing this app refuses to do everywhere else.
+    """
+    import inspect
+
+    from agent_hud.screens import audio
+
+    source = inspect.getsource(audio.build_listening)
+
+    assert "when you stop talking" not in source
+    assert "press Done" in source

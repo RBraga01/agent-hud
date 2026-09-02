@@ -130,6 +130,8 @@ Typing on a headset is not a thing anyone should have to do, so for anything lon
 Audio  ->  listening  ->  worked out on your gateway  ->  you read it  ->  send
 ```
 
+Press Done when you have finished speaking. It does not try to notice you stopping — that needs live audio levels the glasses do not hand over — so instead there is a visible countdown to a one-minute cap, and a recording you walked away from stops on its own rather than running until the battery does.
+
 **You read it back before any of it leaves.** Speech recognition gets things wrong, and somebody who dictates "do not deploy" and has "now deploy" sent for them has been failed badly. So the words come back, on screen, exactly as they would be sent. Only then is there a Send button.
 
 If it came out wrong, say it again. There is no gaze text editor and there will not be one — fixing a sentence by staring at letters is miserable, and your phone is right there for when the exact words matter. A reply you started on the glasses shows up in Control as a pending draft, where you can finish it with a keyboard and send it from there.

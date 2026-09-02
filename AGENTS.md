@@ -151,6 +151,26 @@ matched nothing. A guard that cannot fail is worse than no guard, because
 it reads like one. If you write a test whose job is to catch something,
 make it catch something first.
 
+## Never claim what the app does not do
+
+Found by auditing rather than by a failing test: the listening screen
+said "it stops on its own when you stop talking" and nothing detected
+silence. It was simply untrue, in the one product whose whole argument is
+that it does not say untrue things.
+
+Detecting silence needs live audio levels, and `peripherals/microphone.py`
+hands the bytes over only at `stop_recording()`. There is nothing to
+watch. So the claim went, and what replaced it is real: a visible
+countdown to a cap, so a recording somebody walked away from does not run
+until the battery does.
+
+If voice activity detection ever arrives, it needs a level signal the
+framework does not currently expose. Until then the screen says "press
+Done", because that is what happens.
+
+The general form of this: **before writing a sentence on a screen, find
+the code that makes it true.** If you cannot, change the sentence.
+
 ## Two absences that are the design
 
 Both of these are things you will not find, and both are deliberate. If a
