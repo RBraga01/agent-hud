@@ -55,6 +55,7 @@ from .screens import (
     build_task_list,
 )
 from .screens import style as s
+from .screens.audio import build_listening, build_processing, build_review
 from .screens.unavailable import build_unavailable
 from .tasks import Task, find_task, needs_you_count
 from .transitions import (
@@ -104,6 +105,10 @@ class AgentHud(RavenApp):
             environment when not given.
         fetch: How to reach the gateway. Replaced in tests.
         send: How to send an answer back. Replaced in tests.
+        recorder: Something with start() and stop() -> bytes. The
+            microphone, or a stand-in.
+        transcribe: Hands a recording to the gateway and returns
+            (text, failure_reason). Replaced in tests.
         gaze: Where the wearer is looking, or None if unknown.
         clock: Source of the current time, in seconds.
         auto_start: Whether to kick the first background fetch and start
@@ -118,6 +123,8 @@ class AgentHud(RavenApp):
         settings: Settings | None = None,
         fetch: Callable[..., FetchResult] | None = None,
         send: Callable[..., SendResult] | None = None,
+        recorder=None,
+        transcribe: Callable[..., tuple[str, str]] | None = None,
         gaze: Callable[[], tuple[int, int] | None] | None = None,
         clock: Callable[[], float] | None = None,
         auto_start: bool = True,
@@ -127,6 +134,7 @@ class AgentHud(RavenApp):
         self._settings = settings or load_settings()
         self._fetch = fetch or fetch_tasks
         self._send = send or send_feedback
+        self._transcribe = transcribe or self._transcribe_via_gateway
         self._gaze = gaze or _default_gaze
         self._clock = clock or time.monotonic
 
@@ -148,6 +156,16 @@ class AgentHud(RavenApp):
         # not also change how the display behaves.
         self._preferences = Preferences()
         self._gateways = self._settings.gateways
+
+        # Speaking a reply. The recording never lands on the instance --
+        # it goes straight from the microphone to the gateway and is
+        # dropped there once it has been read.
+        self._audio_available = False
+        self._recorder = recorder
+        self._recording = False
+        self._transcript = ""
+        self._transcript_failure = ""
+        self._transcribe_result: tuple[str, str] | None = None
 
         # The answer in flight, if any. Kept on the instance so a redraw
         # cannot lose the request id a retry needs.
@@ -282,6 +300,21 @@ class AgentHud(RavenApp):
         """The gateway in use."""
         active = self._gateways.active
         return active if active is not None else self._settings.active_gateway
+
+    @property
+    def transcript(self) -> str:
+        """What the gateway heard, waiting to be read back."""
+        return self._transcript
+
+    @property
+    def transcript_failure(self) -> str:
+        """Why there is nothing to read back, when there is not."""
+        return self._transcript_failure
+
+    @property
+    def audio_available(self) -> bool:
+        """Whether this gateway has anything to listen with."""
+        return self._audio_available
 
     @property
     def send_state(self) -> SendState:
@@ -452,6 +485,8 @@ class AgentHud(RavenApp):
             self._send_state.value,
             self._send_reason,
             self.gateway.name,
+            self._transcript,
+            self._transcript_failure,
             self._fetching if self._nav.screen is Screen.UNAVAILABLE else False,
             None if task is None else (task.revision, task.title, task.summary),
             tuple((t.id, t.source, t.summary) for t in self.waiting),
@@ -509,6 +544,39 @@ class AgentHud(RavenApp):
             top = self._draw_action_menu()
         elif screen is Screen.CONFIRMATION:
             top = self._draw_confirmation()
+        elif screen is Screen.LISTENING:
+            task = self.current_task
+            top = (
+                None
+                if task is None
+                else self._place(
+                    build_listening(
+                        task, on_done=self.stop_speaking, on_cancel=self.cancel
+                    )
+                )
+            )
+        elif screen is Screen.PROCESSING:
+            task = self.current_task
+            top = (
+                None
+                if task is None
+                else self._place(build_processing(task, on_cancel=self.cancel))
+            )
+        elif screen is Screen.REVIEW:
+            task = self.current_task
+            top = (
+                None
+                if task is None
+                else self._place(
+                    build_review(
+                        task,
+                        self._transcript,
+                        failed_reason=self._transcript_failure,
+                        on_again=self.start_speaking,
+                        on_send=self.send_transcript,
+                    )
+                )
+            )
         elif screen is Screen.RESULT:
             top = self._draw_result()
         elif screen is Screen.UNAVAILABLE:
@@ -549,12 +617,14 @@ class AgentHud(RavenApp):
         return self._place(
             build_action_menu(
                 task,
-                # Audio needs the gateway to transcribe, which is not built
-                # yet. The position is drawn but not pressable, so the
-                # geometry the wearer has learned does not shift later.
-                audio_available=False,
+                # Only live when the gateway has an engine. The position
+                # is always drawn, so the geometry the wearer has learned
+                # never shifts; it simply does nothing when nothing can
+                # listen.
+                audio_available=self._audio_available,
                 on_primary=self.select_primary,
                 on_secondary=self.select_secondary,
+                on_audio=self.start_speaking,
                 on_cancel=self.cancel,
             )
         )
@@ -713,6 +783,115 @@ class AgentHud(RavenApp):
             # would latch and polling would stop for good.
             self._fetching = False
 
+    # -- speaking -------------------------------------------------------
+
+    def start_speaking(self) -> None:
+        """Begin recording a reply.
+
+        Starting the microphone sends nothing and commits to nothing. The
+        words come back to be read before any of this leaves the glasses.
+        """
+        task = self.current_task
+        if task is None or not self._audio_available:
+            return
+        self._transcript = ""
+        self._transcript_failure = ""
+        if self._recorder is not None and not self._recording:
+            try:
+                self._recorder.start()
+                self._recording = True
+            except Exception:
+                # A microphone that will not start is not a reason to
+                # take the display down. Say so on the review screen.
+                self._transcript_failure = "The microphone would not start."
+                self._nav = advance(self._nav, Event.SELECT_AUDIO, self._tasks)
+                self._nav = advance(self._nav, Event.CONFIRM, self._tasks)
+                self._nav = replace_screen(self._nav, Screen.REVIEW)
+                self._render()
+                return
+        self._fire(Event.SELECT_AUDIO)
+
+    def stop_speaking(self) -> None:
+        """Stop recording and hand what was said to the gateway."""
+        if self._nav.screen is not Screen.LISTENING:
+            return
+
+        audio = b""
+        if self._recorder is not None and self._recording:
+            try:
+                audio = self._recorder.stop() or b""
+            except Exception:
+                audio = b""
+            finally:
+                self._recording = False
+
+        self._fire(Event.CONFIRM)  # -> PROCESSING
+        self._transcribe_in_background(audio)
+
+    def send_transcript(self) -> None:
+        """Send the words that were read back. The only step that sends."""
+        task = self.current_task
+        if task is None or not self._transcript.strip():
+            return
+        self._outgoing = Feedback(
+            task_id=task.id,
+            revision=task.revision,
+            text=self._transcript,
+            request_id=new_request_id(),
+        )
+        self._send_state = SendState.SENDING
+        self._send_reason = ""
+        self._fire(Event.CONFIRM)  # -> RESULT
+        self._send_in_background()
+
+    def _transcribe_via_gateway(self, audio: bytes) -> tuple[str, str]:
+        """Post a recording and get back (text, failure reason)."""
+        import json as _json
+
+        import requests
+
+        task = self.current_task
+        if task is None:
+            return "", "that task is gone"
+        try:
+            response = requests.post(
+                f"{self.gateway.base}/tasks/{task.id}/audio",
+                data=audio,
+                headers={"Content-Type": "audio/wav"},
+                timeout=DEFAULT_TIMEOUT_SECONDS * 4,
+            )
+        except Exception:
+            return "", "The gateway could not be reached."
+        try:
+            payload = _json.loads(response.content or b"null")
+        except ValueError:
+            payload = None
+        if response.status_code != 200 or not isinstance(payload, dict):
+            reason = ""
+            if isinstance(payload, dict):
+                reason = str(payload.get("error", ""))
+            return "", reason or "The gateway could not use that recording."
+        return str(payload.get("text", "")), ""
+
+    def _transcribe_in_background(self, audio: bytes) -> None:
+        """Off the main thread: a model takes seconds, not milliseconds."""
+
+        def work() -> None:
+            self._transcribe_result = self._transcribe(audio)
+
+        self._async.run(work, on_complete=self._apply_transcript)
+
+    def _apply_transcript(self) -> None:
+        result = self._transcribe_result
+        self._transcribe_result = None
+        if result is None:
+            self._transcript, self._transcript_failure = "", "Nothing came back."
+        else:
+            self._transcript, self._transcript_failure = result
+        if self._nav.screen is Screen.PROCESSING:
+            self._nav = replace_screen(self._nav, Screen.REVIEW)
+        self._render()
+
     def _send_in_background(self) -> None:
         """Send the pending answer off the main thread. One at a time."""
         if self._sending or self._outgoing is None:
@@ -758,6 +937,11 @@ class AgentHud(RavenApp):
             return
         self._preferences = preferences
         self._animate = preferences.animations
+        if isinstance(payload, dict):
+            # Whether Audio is offered at all. Recording something the
+            # gateway cannot process would waste the wearer's time and
+            # their battery, so the button is only live when it can work.
+            self._audio_available = bool(payload.get("audio_available"))
         self._render()
 
     def switch_gateway(self, name: str) -> None:
@@ -784,6 +968,17 @@ class AgentHud(RavenApp):
 
     def _tick_gaze_from_sensor(self) -> None:
         self.tick_gaze(gaze_position=self._gaze())
+
+
+def replace_screen(nav: Nav, screen: Screen) -> Nav:
+    """Move to a screen the state machine cannot get to on its own.
+
+    Only used where the app learns something the machine could not know:
+    a transcript arriving, or a microphone refusing to start.
+    """
+    from dataclasses import replace
+
+    return replace(nav, screen=screen)
 
 
 def _now_hhmm() -> str:

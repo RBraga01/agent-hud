@@ -424,3 +424,227 @@ def test_there_is_no_way_to_ask_it_to_listen_elsewhere():
     assert "host" not in parameters
     assert "address" not in parameters
     assert "bind" not in parameters
+
+
+# --- audio, and the drafts it makes -----------------------------------
+
+
+@pytest.fixture
+def hearing_gateway():
+    """A gateway with an engine that hears whatever the test says."""
+    from stub_server.server import create_server
+    from stub_server.transcription import Transcript
+
+    state = {"tasks": [dict(TASK)], "heard": "rerun the tests"}
+
+    class Fake:
+        name = "fake"
+        available = True
+
+        def transcribe(self, audio, *, language="auto"):
+            return Transcript(text=state["heard"], ok=True)
+
+    server = create_server(lambda: list(state["tasks"]), port=0)
+    server.transcriber = Fake()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield base, state, server
+
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+def _wav():
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x00" * 1600)
+    return buffer.getvalue()
+
+
+def _post_audio(base, task_id="task-17", audio=None):
+    return requests.post(
+        f"{base}/tasks/{task_id}/audio",
+        data=_wav() if audio is None else audio,
+        headers={"Content-Type": "audio/wav"},
+        timeout=5,
+    )
+
+
+def test_with_no_engine_the_gateway_says_audio_is_off(gateway):
+    base, _ = gateway
+    settings = _get(base, "/settings").json()
+
+    assert settings["audio_available"] is False
+    assert settings["audio_engine"] == "none"
+
+
+def test_with_no_engine_a_recording_is_refused_with_a_reason(gateway):
+    base, _ = gateway
+
+    response = _post_audio(base)
+
+    assert response.status_code == 422
+    assert "engine" in response.json()["error"].lower()
+
+
+def test_a_recording_becomes_a_draft(hearing_gateway):
+    base, _, _ = hearing_gateway
+
+    body = _post_audio(base).json()
+
+    assert body["text"] == "rerun the tests"
+    assert body["task_id"] == "task-17"
+    assert body["revision"] == 4
+    assert body["draft_id"]
+
+
+def test_the_draft_carries_the_revision_it_was_dictated_against(hearing_gateway):
+    # So a task that moved on refuses it, exactly as an action would be.
+    base, state, _ = hearing_gateway
+    state["tasks"] = [dict(TASK, revision=9)]
+
+    assert _post_audio(base).json()["revision"] == 9
+
+
+def test_a_draft_shows_up_in_the_pending_list(hearing_gateway):
+    base, _, _ = hearing_gateway
+    _post_audio(base)
+
+    drafts = _get(base, "/drafts").json()["drafts"]
+
+    assert len(drafts) == 1
+    assert drafts[0]["text"] == "rerun the tests"
+
+
+def test_a_draft_can_be_edited_from_somewhere_more_comfortable(hearing_gateway):
+    base, _, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+
+    response = requests.post(
+        f"{base}/drafts/{draft_id}/edit",
+        json={"text": "rerun the tests and deploy only if they pass"},
+        timeout=5,
+    )
+
+    assert response.status_code == 200
+    assert "deploy only if they pass" in response.json()["text"]
+
+
+def test_an_empty_edit_is_refused(hearing_gateway):
+    base, _, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+
+    response = requests.post(
+        f"{base}/drafts/{draft_id}/edit", json={"text": "   "}, timeout=5
+    )
+
+    assert response.status_code == 400
+
+
+def test_discarding_takes_the_words_with_it(hearing_gateway):
+    base, _, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+
+    requests.post(f"{base}/drafts/{draft_id}/discard", timeout=5)
+
+    assert _get(base, "/drafts").json()["drafts"] == []
+
+
+def test_sending_a_draft_goes_through_the_same_door_an_action_does(
+    hearing_gateway,
+):
+    base, _, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+
+    response = requests.post(
+        f"{base}/drafts/{draft_id}/send",
+        json={"request_id": "req-draft-1"},
+        timeout=5,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
+    assert _get(base, "/drafts").json()["drafts"] == []
+
+
+def test_a_draft_written_against_a_task_that_moved_on_is_refused(
+    hearing_gateway,
+):
+    base, state, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+    state["tasks"] = [dict(TASK, revision=99)]
+
+    response = requests.post(
+        f"{base}/drafts/{draft_id}/send",
+        json={"request_id": "req-draft-2"},
+        timeout=5,
+    )
+
+    assert response.status_code == 409
+
+
+def test_sending_the_same_draft_twice_only_acts_once(hearing_gateway):
+    base, _, _ = hearing_gateway
+    draft_id = _post_audio(base).json()["draft_id"]
+    body = {"request_id": "req-draft-3"}
+
+    first = requests.post(f"{base}/drafts/{draft_id}/send", json=body, timeout=5)
+    # The draft is gone now, so a repeat cannot even find it -- which is
+    # the same protection arriving one step earlier.
+    second = requests.post(f"{base}/drafts/{draft_id}/send", json=body, timeout=5)
+
+    assert first.status_code == 200
+    assert second.status_code == 404
+
+
+def test_a_recording_for_a_task_that_does_not_exist_is_refused(hearing_gateway):
+    base, _, _ = hearing_gateway
+
+    assert _post_audio(base, task_id="nope").status_code == 404
+
+
+def test_something_that_is_not_a_recording_is_refused(hearing_gateway):
+    base, _, _ = hearing_gateway
+
+    response = _post_audio(base, audio=b'{"not": "audio"}')
+
+    assert response.status_code == 422
+
+
+def test_an_oversized_recording_is_refused(hearing_gateway):
+    """It is turned away, whether by an answer or by the door shutting.
+
+    The gateway refuses on the declared length before reading the body,
+    which is the right way round: it should not pull megabytes into
+    memory to decide it does not want them. A client mid-upload sees the
+    connection close rather than a status line, and either way the
+    recording was not accepted.
+    """
+    from stub_server.transcription import MAX_AUDIO_BYTES
+
+    base, _, _ = hearing_gateway
+    oversized = b"RIFF" + b"\x00" * (MAX_AUDIO_BYTES + 2048)
+
+    try:
+        status = _post_audio(base, audio=oversized).status_code
+    except requests.RequestException:
+        status = 413  # refused before it would finish listening
+
+    assert status in (413, 422)
+    # And the gateway is still there, serving.
+    assert _get(base, "/tasks").status_code == 200
+
+
+def test_acting_on_a_draft_that_is_gone_is_not_found(hearing_gateway):
+    base, _, _ = hearing_gateway
+
+    assert requests.post(f"{base}/drafts/nope/discard", timeout=5).status_code == 404

@@ -78,6 +78,41 @@ The gateway binds to `127.0.0.1` and nothing else. There is no host argument and
 
 That is fine for something reachable only from the machine it runs on. It stops being fine the moment it is not. **Do not put this on a network or behind a tunnel until it has authentication.** The design for that is passkeys, so that no password and no biometric ever reaches the gateway — only a public key — but it is not built yet, and shipping a half-built lock would be worse than an honest open door.
 
+## Speaking a reply
+
+![Speaking, and reading it back](docs/speaking_night.png)
+
+Typing on a headset is not a thing anyone should have to do, so for anything longer than a button you can just say it.
+
+```
+Audio  ->  listening  ->  worked out on your gateway  ->  you read it  ->  send
+```
+
+**You read it back before any of it leaves.** Speech recognition gets things wrong, and somebody who dictates "do not deploy" and has "now deploy" sent for them has been failed badly. So the words come back, on screen, exactly as they would be sent. Only then is there a Send button.
+
+If it came out wrong, say it again. There is no gaze text editor and there will not be one — fixing a sentence by staring at letters is miserable, and your phone is right there for when the exact words matter. A reply you started on the glasses shows up in Control as a pending draft, where you can finish it with a keyboard and send it from there.
+
+**The recording never leaves your own machines and is not kept.** It goes from the glasses to your gateway, is turned into words there, and is dropped. There is nowhere in the code that writes it down, and a test checks that rather than trusting the comment.
+
+### Turning it on
+
+Nothing is installed by default. A speech model is hundreds of megabytes and nobody should get one because they cloned a repository, so the gateway has an interface with a plug in it and ships with the plug empty. Audio then shows as unavailable, in its usual place, doing nothing.
+
+To turn it on, install an engine and name it:
+
+```bash
+pip install faster-whisper          # on the gateway, not the glasses
+AGENT_HUD_TRANSCRIBER=faster-whisper python -m stub_server.server
+```
+
+The model runs on that machine. There is no cloud transcription option here, and adding one would mean changing code that says out loud that it does not do that.
+
+| Setting | What it does |
+|---|---|
+| `AGENT_HUD_TRANSCRIBER` | Which engine to use. `none` (the default) or `faster-whisper` |
+
+Any other name turns Audio off and says so, rather than stopping the gateway and taking your task list down with it.
+
 ## More than one gateway
 
 You might have one at home and one at work. They hold different tasks, different credentials and different settings, and neither needs to know the other exists. There is no account joining them and no service in the middle — the glasses are the only thing aware of both.
@@ -173,6 +208,7 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between screens. `off` for a lower-motion display |
 | `AGENT_HUD_GATEWAYS` | — | More than one paired gateway, as `Home=url;Work=url`. Leave it unset if you only have one |
 | `AGENT_HUD_ACTIVE_GATEWAY` | first listed | Which paired gateway to start on |
+| `AGENT_HUD_TRANSCRIBER` | none | Speech engine for the gateway. `none` or `faster-whisper` |
 
 They are read straight from the environment. Set them before running:
 

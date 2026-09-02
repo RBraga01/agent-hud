@@ -32,6 +32,8 @@ So every decision worth testing lives in a module that does not import the frame
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
 | `stub_server/policy.py` | no | what that gateway will accept, and what it does about it |
+| `stub_server/transcription.py` | no | the speech engine interface. No engine ships; the plug is empty by default |
+| `stub_server/drafts.py` | no | replies being written, before they are sent. Temporary by construction |
 | `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
 | `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
 | `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
@@ -99,6 +101,21 @@ its own origin, so a browser enforces "talks to nothing else" even if the
 page is later changed by mistake. Files are served from `control/` by
 basename only, and only for a short list of content types, so no amount
 of dots or slashes in a request reaches outside the folder.
+
+## The recording is never kept
+
+Speech becomes text on the gateway and the audio is dropped. Not "deleted
+later" -- there is nowhere in `transcription.py` that writes it down, and
+`drafts.py` holds only the words. A test greps both modules for anything
+that could touch disk, and proves it can fail by being pointed at a
+module that genuinely does read files.
+
+That test is worth knowing about for a second reason: it was broken for
+a while and passed anyway. A shell heredoc ate a backslash and left a
+backspace byte where each word boundary was meant, so every pattern
+matched nothing. A guard that cannot fail is worse than no guard, because
+it reads like one. If you write a test whose job is to catch something,
+make it catch something first.
 
 ## Two absences that are the design
 

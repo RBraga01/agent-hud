@@ -75,6 +75,10 @@ class Policy:
             out.append(task)
         return out
 
+    def find_public(self, task_id: str) -> dict | None:
+        """One task as this gateway currently sees it, or None."""
+        return self._find(task_id)
+
     # -- writing --------------------------------------------------------
 
     def receive(self, task_id: str, body: object) -> tuple[int, dict]:

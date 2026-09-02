@@ -26,7 +26,7 @@ const state = {
   tasks: [],
   settings: null,
   online: false,
-  draft: null, // { taskId, revision, text }
+  draft: null, // whatever the gateway says is pending
   pending: null, // what the confirm dialog will do
 };
 
@@ -36,6 +36,21 @@ async function getJSON(path) {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
   return response.json();
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
+  }
+  return { status: response.status, payload };
 }
 
 async function postJSON(path, body) {
@@ -265,9 +280,16 @@ function openTask(task) {
   });
 
   const write = el("button", "", "Write response");
-  write.addEventListener("click", () => {
+  write.addEventListener("click", async () => {
     dialog.close();
-    state.draft = { taskId: task.id, revision: task.revision, text: "" };
+    // A draft with no words yet. It lives on the gateway like any other,
+    // so it is the same thing the glasses would show.
+    state.draft = {
+      draft_id: null,
+      task_id: task.id,
+      revision: task.revision,
+      text: "",
+    };
     render();
     $("draft-text").focus();
   });
@@ -297,7 +319,8 @@ function askToConfirmDraft() {
   if (!text) return;
   $("confirm-what").textContent = "Send this response?";
   state.pending = {
-    taskId: state.draft.taskId,
+    taskId: state.draft.task_id,
+    draftId: state.draft.draft_id,
     body: {
       revision: state.draft.revision,
       type: "message",
@@ -310,6 +333,23 @@ function askToConfirmDraft() {
   $("confirm-dialog").showModal();
 }
 
+async function discardDraft() {
+  const draft = state.draft;
+  state.draft = null;
+  render();
+  // A draft the gateway knows about has to be thrown away there too, or
+  // it comes straight back on the next refresh -- and would still be on
+  // the glasses.
+  if (draft?.draft_id) {
+    try {
+      await post(`/drafts/${encodeURIComponent(draft.draft_id)}/discard`);
+    } catch {
+      /* it expires on its own soon enough */
+    }
+  }
+  refresh();
+}
+
 /* The only place anything is transmitted. */
 async function sendPending() {
   const pending = state.pending;
@@ -318,7 +358,16 @@ async function sendPending() {
 
   let result;
   try {
-    result = await postJSON(`/tasks/${encodeURIComponent(pending.taskId)}/feedback`, pending.body);
+    // A draft the gateway is holding goes through its own door, so it is
+    // marked sent there rather than left behind for the glasses to show.
+    result = pending.draftId
+      ? await post(`/drafts/${encodeURIComponent(pending.draftId)}/send`, {
+          request_id: pending.body.request_id,
+        })
+      : await postJSON(
+          `/tasks/${encodeURIComponent(pending.taskId)}/feedback`,
+          pending.body,
+        );
   } catch {
     // We do not know whether it arrived, so we do not say it did.
     say("Not sent. The gateway could not be reached — trying again is safe.");
@@ -352,12 +401,18 @@ function say(message) {
 
 async function refresh() {
   try {
-    const [tasks, settings] = await Promise.all([
+    const [tasks, settings, drafts] = await Promise.all([
       getJSON("/tasks"),
       getJSON("/settings"),
+      getJSON("/drafts"),
     ]);
     state.tasks = Array.isArray(tasks.tasks) ? tasks.tasks : [];
     state.settings = settings;
+    // The gateway owns drafts, so a reply dictated into the glasses can
+    // be finished here, and one typed here shows up there.
+    const open = Array.isArray(drafts.drafts) ? drafts.drafts : [];
+    const editing = document.activeElement === $("draft-text");
+    if (!editing) state.draft = open[0] || null;
     state.online = true;
   } catch {
     // The last known list stays on screen, marked as not current. An
@@ -378,10 +433,7 @@ $("confirm-ok").addEventListener("click", () => {
   sendPending();
 });
 $("draft-send").addEventListener("click", askToConfirmDraft);
-$("draft-discard").addEventListener("click", () => {
-  state.draft = null;
-  render();
-});
+$("draft-discard").addEventListener("click", discardDraft);
 
 refresh();
 setInterval(refresh, POLL_MS);

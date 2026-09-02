@@ -33,6 +33,7 @@ _CODEX_DIR_VAR = "AGENT_HUD_CODEX_DIR"
 _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 _GATEWAYS_VAR = "AGENT_HUD_GATEWAYS"
 _ACTIVE_GATEWAY_VAR = "AGENT_HUD_ACTIVE_GATEWAY"
+_TRANSCRIBER_VAR = "AGENT_HUD_TRANSCRIBER"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -73,6 +74,9 @@ class Settings:
     # Every paired gateway, and which one is in use. Empty means the
     # single one named by gateway_url, which is the ordinary case.
     gateways: GatewayBook = field(default_factory=GatewayBook)
+    # Which speech engine the development gateway should use. Empty means
+    # none, and Audio then reports itself unavailable.
+    transcriber: str = ""
 
     @property
     def active_gateway(self) -> Gateway:
@@ -223,4 +227,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         codex_dir=_read_codex_dir(source),
         skip_path_words=_read_skip_path_words(source),
         gateways=_read_gateways(source),
+        transcriber=source.get(_TRANSCRIBER_VAR, "").strip(),
     )

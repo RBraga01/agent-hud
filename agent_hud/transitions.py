@@ -47,6 +47,11 @@ _DEPTH = {
     "task_detail": 3,
     "action_menu": 4,
     "confirmation": 5,
+    # Speaking is a detour from the menu, not a rung of its own, so
+    # the three audio screens share the depth just past it.
+    "listening": 5,
+    "processing": 5,
+    "review": 5,
     "result": 6,
     # Off to one side of the ladder rather than on it: arriving here is
     # not going deeper into anything.

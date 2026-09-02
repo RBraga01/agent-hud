@@ -1066,3 +1066,235 @@ def test_preferences_start_at_something_sensible(qapp):
     hud = make_hud(qapp, tasks=[WAITING])
 
     assert hud.preferences == Preferences()
+
+
+# --- speaking a reply -------------------------------------------------
+
+
+class FakeMic:
+    """Records nothing, and says what it was asked to do."""
+
+    def __init__(self, audio=b"RIFF....WAVE", fail=False):
+        self._audio, self._fail = audio, fail
+        self.started = 0
+        self.stopped = 0
+
+    def start(self):
+        if self._fail:
+            raise RuntimeError("no microphone")
+        self.started += 1
+
+    def stop(self):
+        self.stopped += 1
+        return self._audio
+
+
+def make_speaking_hud(qapp, heard="rerun the tests", failure="", mic=None,
+                      sent=None, audio_on=True):
+    def transcribe(audio):
+        return heard, failure
+
+    def send(base, feedback, timeout=None):
+        if sent is not None:
+            sent.append(feedback)
+        return SendResult(outcome=SendOutcome.ACCEPTED, request_id=feedback.request_id)
+
+    result = FetchResult(tasks=[WAITING], ok=True)
+    hud = AgentHud(
+        settings=SETTINGS,
+        fetch=lambda url, timeout: result,
+        send=send,
+        transcribe=transcribe,
+        recorder=mic if mic is not None else FakeMic(),
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    hud.refresh_now()
+    if audio_on:
+        hud.apply_preferences({"revision": 1, "audio_available": True})
+    return hud
+
+
+def walk_to_menu(qapp, hud):
+    hud.open_list()
+    hud.select_task("a")
+    hud.take_action()
+    pump(qapp)
+    return hud
+
+
+def settle_audio(qapp, hud, deadline_s=5.0):
+    end = time.monotonic() + deadline_s
+    while hud.screen is Screen.PROCESSING and time.monotonic() < end:
+        pump(qapp)
+        time.sleep(0.01)
+    for _ in range(4):
+        pump(qapp)
+        time.sleep(0.01)
+
+
+def test_audio_is_not_offered_when_the_gateway_cannot_listen(qapp):
+    # Recording something nobody can process would waste the wearer's
+    # time and their battery.
+    mic = FakeMic()
+    hud = make_speaking_hud(qapp, mic=mic, audio_on=False)
+    walk_to_menu(qapp, hud)
+
+    hud.start_speaking()
+
+    assert hud.screen is Screen.ACTION_MENU
+    assert mic.started == 0
+
+
+def test_speaking_starts_the_microphone_and_sends_nothing(qapp):
+    sent = []
+    mic = FakeMic()
+    hud = make_speaking_hud(qapp, mic=mic, sent=sent)
+    walk_to_menu(qapp, hud)
+
+    hud.start_speaking()
+
+    assert hud.screen is Screen.LISTENING
+    assert mic.started == 1
+    assert sent == [], "starting the microphone must not send anything"
+
+
+def test_what_was_said_comes_back_to_be_read(qapp):
+    hud = make_speaking_hud(qapp, heard="rerun the tests")
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    assert hud.screen is Screen.REVIEW
+    assert hud.transcript == "rerun the tests"
+
+
+def test_stopping_the_recording_still_sends_nothing(qapp):
+    sent = []
+    hud = make_speaking_hud(qapp, sent=sent)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    assert sent == [], "the transcript must be read before anything goes"
+
+
+def test_only_send_sends(qapp):
+    sent = []
+    hud = make_speaking_hud(qapp, heard="deploy it", sent=sent)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    hud.send_transcript()
+    settle_send(qapp, hud)
+
+    assert len(sent) == 1
+    assert sent[0].text == "deploy it"
+    assert sent[0].action_id is None
+    assert sent[0].revision == WAITING.revision
+
+
+def test_wrong_words_are_said_again_rather_than_edited_by_eye(qapp):
+    hud = make_speaking_hud(qapp, heard="now deploy")
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    hud.cancel()
+
+    assert hud.screen is Screen.LISTENING
+
+
+def test_hearing_nothing_says_so_and_offers_another_go(qapp):
+    hud = make_speaking_hud(qapp, heard="", failure="nothing was heard")
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    assert hud.screen is Screen.REVIEW
+    assert hud.transcript_failure == "nothing was heard"
+
+
+def test_an_empty_transcript_cannot_be_sent(qapp):
+    sent = []
+    hud = make_speaking_hud(qapp, heard="   ", failure="", sent=sent)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    hud.send_transcript()
+    settle_send(qapp, hud)
+
+    assert sent == []
+
+
+def test_a_microphone_that_will_not_start_says_so(qapp):
+    hud = make_speaking_hud(qapp, mic=FakeMic(fail=True))
+    walk_to_menu(qapp, hud)
+
+    hud.start_speaking()
+    pump(qapp)
+
+    assert hud.screen is Screen.REVIEW
+    assert "microphone" in hud.transcript_failure.lower()
+
+
+def test_cancelling_while_listening_goes_back_to_the_menu(qapp):
+    hud = make_speaking_hud(qapp)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+
+    hud.cancel()
+
+    assert hud.screen is Screen.ACTION_MENU
+
+
+def test_a_refresh_does_not_interrupt_someone_speaking(qapp):
+    hud = make_speaking_hud(qapp)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))
+    pump(qapp)
+
+    assert hud.screen is Screen.LISTENING
+
+
+def test_a_refresh_does_not_interrupt_someone_reading_it_back(qapp):
+    hud = make_speaking_hud(qapp)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    hud.apply(FetchResult(tasks=[], ok=True))
+    pump(qapp)
+
+    assert hud.screen is Screen.REVIEW
+
+
+def test_the_recording_is_never_kept_on_the_app(qapp):
+    """It goes from the microphone to the gateway and is not held here."""
+    hud = make_speaking_hud(qapp)
+    walk_to_menu(qapp, hud)
+    hud.start_speaking()
+    hud.stop_speaking()
+    settle_audio(qapp, hud)
+
+    held = [
+        name
+        for name, value in vars(hud).items()
+        if isinstance(value, (bytes, bytearray)) and len(value) > 8
+    ]
+
+    assert held == [], f"the app is holding audio in {held}"

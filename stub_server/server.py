@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,11 +28,19 @@ from pathlib import Path
 
 from agent_hud.preferences import Preferences, to_payload
 
+from .drafts import DraftBook
 from .policy import Policy
+from .transcription import (
+    MAX_AUDIO_BYTES,
+    load_transcriber,
+    transcribe_upload,
+)
 
 TASKS_PATH = "/tasks"
 SETTINGS_PATH = "/settings"
 CONTROL_PREFIX = "/control/"
+AUDIO_SUFFIX = "/audio"
+DRAFTS_PATH = "/drafts"
 
 CONTROL_DIR = Path(__file__).parent.parent / "control"
 
@@ -79,7 +88,15 @@ class _TasksHandler(BaseHTTPRequestHandler):
             payload["gateway_name"] = self.server.gateway_name
             payload["device_last_seen"] = self.server.device_last_seen
             payload["sources"] = self.server.sources
+            # The display asks before drawing Audio as pressable, so
+            # nobody records something that cannot be processed.
+            payload["audio_available"] = self.server.transcriber.available
+            payload["audio_engine"] = self.server.transcriber.name
             self._respond(200, payload)
+            return
+
+        if path == DRAFTS_PATH:
+            self._respond(200, {"drafts": self.server.drafts.to_payload()})
             return
 
         if path != TASKS_PATH:
@@ -107,6 +124,15 @@ class _TasksHandler(BaseHTTPRequestHandler):
         handler only reads the body safely and hands it over.
         """
         path = self.path.split("?")[0]
+
+        if path.startswith(TASKS_PATH + "/") and path.endswith(AUDIO_SUFFIX):
+            self._take_audio(path[len(TASKS_PATH) + 1 : -len(AUDIO_SUFFIX)])
+            return
+
+        if path.startswith(DRAFTS_PATH + "/"):
+            self._handle_draft(path[len(DRAFTS_PATH) + 1 :])
+            return
+
         if not (path.startswith(TASKS_PATH + "/") and path.endswith(FEEDBACK_SUFFIX)):
             self._respond(404, {"error": "not found"})
             return
@@ -138,6 +164,116 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return
 
         self._respond(status, payload)
+
+    def _body(self, limit: int) -> bytes | None:
+        """Read the request body, or answer and return None."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            self._respond(400, {"error": "bad content length"})
+            return None
+        if length > limit:
+            self._respond(413, {"error": "request too large"})
+            return None
+        try:
+            return self.rfile.read(length)
+        except OSError:
+            self._respond(400, {"error": "could not read the request"})
+            return None
+
+    def _take_audio(self, task_id: str) -> None:
+        """Turn one recording into a draft, and forget the recording.
+
+        The bytes are held for as long as it takes to transcribe them and
+        are never written anywhere. What survives is the text, in a draft
+        that expires on its own.
+        """
+        task = self.server.policy.find_public(task_id)
+        if task is None:
+            self._respond(404, {"error": "no such task"})
+            return
+
+        audio = self._body(MAX_AUDIO_BYTES + 1024)
+        if audio is None:
+            return
+
+        language = self.headers.get("X-Audio-Language", "auto")
+        result = transcribe_upload(
+            self.server.transcriber, audio, language=language
+        )
+        del audio  # nothing else in this method may reach it
+
+        if not result.ok:
+            self._respond(422, {"error": result.reason})
+            return
+
+        draft = self.server.drafts.create(
+            task_id, int(task.get("revision", 0)), result.text
+        )
+        self._respond(
+            200,
+            {
+                "draft_id": draft.id,
+                "task_id": draft.task_id,
+                "revision": draft.revision,
+                "text": draft.text,
+                "state": draft.state.value,
+            },
+        )
+
+    def _handle_draft(self, rest: str) -> None:
+        """Edit, send or discard one draft."""
+        draft_id, _, verb = rest.partition("/")
+        draft = self.server.drafts.get(draft_id)
+        if draft is None:
+            self._respond(404, {"error": "no such draft"})
+            return
+
+        if verb == "discard":
+            self.server.drafts.discard(draft_id)
+            self._respond(200, {"status": "discarded"})
+            return
+
+        body = self._body(MAX_REQUEST_BYTES)
+        if body is None:
+            return
+        try:
+            payload = json.loads(body or b"null")
+        except ValueError:
+            self._respond(400, {"error": "body is not JSON"})
+            return
+
+        if verb == "edit":
+            text = payload.get("text") if isinstance(payload, dict) else None
+            if not isinstance(text, str) or not text.strip():
+                self._respond(400, {"error": "text is required"})
+                return
+            updated = self.server.drafts.edit(draft_id, text)
+            self._respond(200, {"draft_id": updated.id, "text": updated.text})
+            return
+
+        if verb == "send":
+            # A draft goes through exactly the same door an action does,
+            # with the revision it was written against, so a task that
+            # moved on refuses it in exactly the same way.
+            request_id = (
+                payload.get("request_id") if isinstance(payload, dict) else None
+            )
+            status, answer = self.server.policy.receive(
+                draft.task_id,
+                {
+                    "revision": draft.revision,
+                    "type": "message",
+                    "text": draft.text,
+                    "request_id": request_id or secrets.token_hex(16),
+                },
+            )
+            if status == 200:
+                self.server.drafts.mark_sent(draft_id)
+            self._respond(status, answer)
+            return
+
+        self._respond(404, {"error": "not found"})
 
     def _redirect(self, where: str) -> None:
         self.send_response(303)
@@ -206,6 +342,7 @@ class _TasksServer(ThreadingHTTPServer):
         *,
         gateway_name: str = "this machine",
         sources: list[dict] | None = None,
+        transcriber: str = "",
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -216,6 +353,11 @@ class _TasksServer(ThreadingHTTPServer):
         self.gateway_name = gateway_name
         self.sources = list(sources or [])
         self.device_last_seen: int | None = None
+        # No speech engine unless one is configured. Audio then
+        # reports itself unavailable rather than recording something
+        # nobody can process.
+        self.transcriber = load_transcriber(transcriber)
+        self.drafts = DraftBook()
         super().__init__(address, _TasksHandler)
 
 
@@ -225,6 +367,7 @@ def create_server(
     *,
     gateway_name: str = "this machine",
     sources: list[dict] | None = None,
+    transcriber: str = "",
 ) -> _TasksServer:
     """Build a server bound to loopback.
 
@@ -237,6 +380,7 @@ def create_server(
         provider,
         gateway_name=gateway_name,
         sources=sources,
+        transcriber=transcriber,
     )
 
 
@@ -251,6 +395,7 @@ def main() -> None:
         lambda: collect(settings, file_path=DEFAULT_DATA_PATH),
         port=port,
         gateway_name=settings.active_gateway.name,
+        transcriber=settings.transcriber,
         sources=[
             {"name": name, "label": name.replace("_", " ").title(), "on": True}
             for name in settings.feeders

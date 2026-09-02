@@ -45,6 +45,9 @@ class Screen(str, Enum):
     TASK_DETAIL = "task_detail"
     ACTION_MENU = "action_menu"
     CONFIRMATION = "confirmation"
+    LISTENING = "listening"
+    PROCESSING = "processing"
+    REVIEW = "review"
     RESULT = "result"
     UNAVAILABLE = "unavailable"
 
@@ -209,10 +212,34 @@ def advance(
     if screen is Screen.ACTION_MENU:
         if event in (Event.CANCEL, Event.BACK):
             return replace(nav, screen=Screen.TASK_DETAIL, stale=False)
+        if event is Event.SELECT_AUDIO:
+            # Recording starts here. Nothing is sent by starting it, and
+            # nothing is sent by stopping it either: the words come back
+            # to be read first.
+            return replace(nav, screen=Screen.LISTENING, stale=False)
         if event is Event.SELECT_PRIMARY and task is not None:
             return _select(nav, task.primary)
         if event is Event.SELECT_SECONDARY and task is not None:
             return _select(nav, task.secondary)
+
+    if screen is Screen.LISTENING:
+        if event in (Event.CANCEL, Event.BACK):
+            return replace(nav, screen=Screen.ACTION_MENU, stale=False)
+        if event is Event.CONFIRM:
+            # Done speaking. The gateway has the recording now.
+            return replace(nav, screen=Screen.PROCESSING, stale=False)
+
+    if screen is Screen.PROCESSING and event in (Event.CANCEL, Event.BACK):
+        return replace(nav, screen=Screen.ACTION_MENU, stale=False)
+
+    if screen is Screen.REVIEW:
+        if event in (Event.CANCEL, Event.BACK):
+            # Wrong words. Say it again rather than trying to fix them by
+            # eye -- editing text with a gaze is nobody's idea of a good
+            # time, and the phone is there for when it matters.
+            return replace(nav, screen=Screen.LISTENING, stale=False)
+        if event is Event.CONFIRM:
+            return replace(nav, screen=Screen.RESULT, stale=False)
 
     if screen is Screen.CONFIRMATION:
         if event in (Event.CANCEL, Event.BACK):
@@ -249,19 +276,26 @@ def nav_for_tasks(nav: Nav, tasks: list[Task]) -> Nav:
     if nav.screen is Screen.IDLE:
         return replace(nav, screen=Screen.ATTENTION) if waiting else nav
 
-    if nav.screen is Screen.RESULT:
+    # Screens the gateway is not allowed to take away, whatever the list
+    # says -- and this has to come before the "nothing is waiting" check
+    # below, because answering something is exactly what empties the list.
+    #
+    # RESULT is the acknowledgement of something the wearer just did.
+    # LISTENING, PROCESSING and REVIEW are somebody mid-sentence. A
+    # refresh arriving in the middle of either would be the gateway
+    # interrupting a person, which is the thing this function exists to
+    # prevent.
+    if nav.screen in (
+        Screen.RESULT,
+        Screen.LISTENING,
+        Screen.PROCESSING,
+        Screen.REVIEW,
+    ):
         return nav
 
     if not waiting:
         # Everything resolved while they were looking at it. Back to rest.
         return Nav(screen=Screen.IDLE)
-
-    if nav.screen is Screen.RESULT:
-        # Never move someone off the acknowledgement of something they
-        # just did. Answering a task usually resolves it, so the very next
-        # refresh would otherwise throw them to the resting screen before
-        # they had read whether it worked.
-        return nav
 
     if nav.screen in (Screen.ATTENTION, Screen.TASK_LIST):
         return nav
