@@ -299,3 +299,46 @@ def test_an_unknown_event_for_the_screen_changes_nothing(tasks):
 
     assert advance(nav, Event.SELECT_PRIMARY, tasks) == nav
     assert advance(nav, Event.SCROLL_DOWN, tasks) == nav
+
+
+# --- paging a long detail ---------------------------------------------
+
+
+def test_a_short_detail_is_one_page():
+    from agent_hud.navigation import detail_page, page_count
+
+    assert page_count(ALSO_WAITING) == 1
+    assert detail_page(ALSO_WAITING, 0) == ALSO_WAITING.detail
+
+
+def test_a_task_with_no_detail_is_still_one_page():
+    from agent_hud.navigation import detail_page, page_count
+
+    assert page_count(BUSY) == 1
+    assert detail_page(BUSY, 0) == ""
+
+
+def test_no_task_at_all_is_one_empty_page():
+    from agent_hud.navigation import detail_page, page_count
+
+    assert page_count(None) == 1
+    assert detail_page(None, 0) == ""
+
+
+def test_a_long_detail_splits_into_pages_that_join_back_up():
+    from agent_hud.navigation import DETAIL_PAGE_CHARS, detail_page, page_count
+
+    pages = page_count(WAITING)
+
+    assert pages > 1
+    joined = "".join(detail_page(WAITING, n) for n in range(pages))
+    assert joined == WAITING.detail
+    assert all(
+        len(detail_page(WAITING, n)) <= DETAIL_PAGE_CHARS for n in range(pages)
+    )
+
+
+def test_a_page_past_the_end_is_empty_rather_than_an_error():
+    from agent_hud.navigation import detail_page
+
+    assert detail_page(WAITING, 999) == ""
