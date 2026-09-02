@@ -25,6 +25,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
 | `feeders/codex.py` | no | reads Codex CLI sessions from `~/.codex` (undocumented format) |
+| `feeders/__init__.py` | no | `collect()` runs the chosen feeders; `file_items()` reads a hand-edited file and raises `FileFeederError` when it exists but is not JSON |
 | `integrations/claude_code/*.py` | no | four hook scripts + `_hook_common.py` — plain stdlib, always exit 0, never store prompt/error text |
 | `stub_server/server.py` | no | the development gateway |
 | `agent_hud/app.py` | **yes** | placing widgets, and nothing else |
@@ -44,6 +45,7 @@ The whole product is "you can trust that nothing on screen means nothing needs y
 | Not a list at all, or unreachable | Keep the last known list, and mark it incomplete. |
 | A list where some entries were malformed | Show the good ones, and mark it incomplete. |
 | More than `MAX_ITEMS`, or an entry's text over length | Keep the first `MAX_ITEMS`, cut over-long `title`/`detail` to fit, and mark it incomplete. A response over `MAX_RESPONSE_BYTES` is refused unread and treated as unreachable. |
+| A feeder threw while building the list | Let it propagate. `stub_server` returns 500, the client reads that as not-ok, and the screen keeps the last list and marks it incomplete. `file_items()` raises `FileFeederError` for a present-but-unparseable file for exactly this reason — it must not return `[]`. |
 
 `parse_payload` reports `valid`, `dropped` and `truncated` separately for this reason, and `AgentHud.is_complete` (online **and** `dropped == 0` **and** `truncated == 0`) is what drives the amber marker. The caps live at the contract boundary — `MAX_RESPONSE_BYTES` in `client.py`, `MAX_ITEMS` / `MAX_TITLE` / `MAX_DETAIL` in `items.py` — so every feeder inherits them. If you ever find yourself returning an empty list for a failure, stop: that is the one bug this project cannot afford.
 

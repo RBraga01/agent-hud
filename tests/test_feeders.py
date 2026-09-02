@@ -209,18 +209,59 @@ def test_reads_a_hand_edited_file(tmp_path):
 
 
 def test_a_missing_file_yields_nothing(tmp_path):
+    # Absent means the feeder simply has no data yet, not that anything
+    # is wrong. That is calm, and calm is correct here.
     from feeders import file_items
 
     assert file_items(tmp_path / "nope.json") == []
 
 
-def test_a_typo_while_editing_does_not_bring_the_gateway_down(tmp_path):
+def test_a_valid_file_with_no_items_is_calm(tmp_path):
     from feeders import file_items
+
+    f = tmp_path / "agents.json"
+    f.write_text(json.dumps({"items": []}), encoding="utf-8")
+
+    assert file_items(f) == []
+
+
+def test_a_typo_while_editing_is_surfaced_not_swallowed(tmp_path):
+    # A file that exists but is not JSON is a broken source. Returning an
+    # empty list here would show a calm, empty screen -- the one thing
+    # this project must never do to hide a failure.
+    from feeders import FileFeederError, file_items
 
     f = tmp_path / "agents.json"
     f.write_text("{ half-finished edit", encoding="utf-8")
 
-    assert file_items(f) == []
+    with pytest.raises(FileFeederError):
+        file_items(f)
+
+
+def test_an_empty_file_is_surfaced(tmp_path):
+    from feeders import FileFeederError, file_items
+
+    f = tmp_path / "agents.json"
+    f.write_text("", encoding="utf-8")
+
+    with pytest.raises(FileFeederError):
+        file_items(f)
+
+
+def test_a_broken_file_stops_collect_so_the_gateway_reports_it(tmp_path):
+    # collect() lets the error propagate; stub_server turns any provider
+    # exception into a 500, which the client reads as "not ok" and the
+    # screen shows as incomplete. Same path a thrown claude/codex feeder
+    # would take.
+    from agent_hud.config import load_settings
+    from feeders import FileFeederError, collect
+
+    f = tmp_path / "agents.json"
+    f.write_text("not json", encoding="utf-8")
+    settings = load_settings(env={"AGENT_HUD_FEEDERS": "simulated,file"})
+
+    with pytest.raises(FileFeederError):
+        collect(settings, file_path=f)
 
 
 # --- choosing feeders -------------------------------------------------

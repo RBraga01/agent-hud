@@ -125,7 +125,7 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | `claude_hook` | State written by four small Claude Code hooks. Knows the difference between your turn, a failure, and Claude still doing background work. Needs a one-time install (below). |
 | `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
 | `codex` | Your recent Codex CLI sessions, from `~/.codex`. Reads the session index for a title and the session log's tail for whose turn it is. Undocumented format, like `claude`. |
-| `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. |
+| `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. An absent file is fine (no data yet); a file that is present but not valid JSON is treated as a broken source and shows the incomplete marker rather than an empty screen. |
 
 Choose them in order — the first one listed appears first on screen:
 

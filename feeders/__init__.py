@@ -20,6 +20,7 @@ from agent_hud.config import Settings
 from . import claude_hook, claude_sessions, codex, simulated
 
 __all__ = [
+    "FileFeederError",
     "claude_hook",
     "claude_sessions",
     "codex",
@@ -29,16 +30,35 @@ __all__ = [
 ]
 
 
+class FileFeederError(RuntimeError):
+    """The hand-edited file exists but could not be read as JSON.
+
+    Raised rather than swallowed: an unreadable file is a broken source,
+    and a broken source must reach the screen as the incomplete marker,
+    never as a calm empty display.
+    """
+
+
 def file_items(path: Path | str) -> list[dict]:
     """Read a hand-edited file. Useful for driving the display by hand.
 
-    A missing or damaged file yields nothing rather than raising, so a typo
-    while editing cannot take the gateway down mid-demo.
+    An absent file yields nothing: the feeder just has no data yet. A
+    file that is present but not valid JSON raises ``FileFeederError``, so
+    a typo mid-edit shows as incomplete instead of as nothing waiting.
     """
+    p = Path(path)
     try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise FileFeederError(f"could not read {p}: {exc}") from exc
+
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:
+        raise FileFeederError(f"{p} is not valid JSON: {exc}") from exc
+
     items = payload.get("items") if isinstance(payload, dict) else None
     return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
 
