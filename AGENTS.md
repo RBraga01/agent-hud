@@ -53,6 +53,8 @@ The whole product is "you can trust that nothing on screen means nothing needs y
 
 The poll interval is shorter than the request timeout. Without a guard, a slow gateway leaves several requests in flight and an older answer can land after a newer one, walking the display backwards. `_refresh_in_background` refuses to start a second fetch while one is running, and clears the guard in a `finally` so a failure cannot latch it shut. Skipping a tick is harmless; the next is seconds away.
 
+The **first** fetch at startup goes through this same background path, not a blocking call. `__init__` renders the resting frame and returns; the count fills in when the answer arrives. Against a remote gateway a blocking first fetch would otherwise hold the glasses on the resting frame for the whole request timeout. `refresh_now()` is the synchronous form, kept for tests only.
+
 ## Things about this display that are not obvious
 
 The glasses can only **add** light to the world. They can never darken it. Everything below follows from that one fact, and all of it was learned by rendering the screen and looking at it.

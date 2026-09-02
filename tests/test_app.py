@@ -412,6 +412,48 @@ def test_the_guard_clears_so_later_polls_still_happen(qapp):
     assert len(calls) == 3
 
 
+# --- the first fetch is asynchronous --------------------------------
+
+
+def test_construction_does_not_block_on_a_slow_first_fetch(qapp):
+    """Once the gateway is remote, a slow or unreachable one must not hold
+    the glasses blank for the whole request timeout. The resting state
+    shows at once and the first result lands when it lands."""
+    import threading
+
+    release = threading.Event()
+    started = []
+
+    def slow_fetch(url, timeout):
+        started.append(1)
+        release.wait(2)
+        return FetchResult(items=[WAITING, ALSO_WAITING], ok=True)
+
+    try:
+        start = time.monotonic()
+        hud = AgentHud(
+            settings=SETTINGS, fetch=slow_fetch, gaze=lambda: None,
+            clock=lambda: 0.0, auto_start=True,
+        )
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0, "__init__ blocked on the first fetch"
+        assert hud.is_idle is True      # resting state, no data yet
+        assert hud.count_text == ""
+
+        release.set()
+        deadline = time.monotonic() + 5
+        while hud.count_text == "" and time.monotonic() < deadline:
+            pump(qapp)
+            time.sleep(0.02)
+
+        assert hud.count_text == "2"    # the real result still arrives
+    finally:
+        release.set()
+        hud.deleteLater()
+        pump(qapp)
+
+
 # --- animated transitions -------------------------------------------------
 
 ANIM = Settings(

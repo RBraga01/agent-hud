@@ -145,7 +145,9 @@ class AgentHud(RavenApp):
         fetch: How to reach the gateway. Replaced in tests.
         gaze: Where the wearer is looking, or None if unknown.
         clock: Source of the current time, in seconds.
-        auto_start: Whether to start the timers. False in tests.
+        auto_start: Whether to kick the first background fetch and start
+            the poll and gaze timers. False in tests, which drive the
+            fetch by hand.
     """
 
     def __init__(
@@ -191,7 +193,15 @@ class AgentHud(RavenApp):
         self._render()
 
         if auto_start:
-            self.refresh_now()
+            # The first fetch goes through the same background path the
+            # poll timer uses, not a blocking call. On localhost the
+            # difference is invisible; against a remote gateway a slow or
+            # unreachable one would otherwise hold the glasses on the
+            # resting frame for the whole request timeout before the app
+            # appeared to start. The resting frame is already on screen
+            # from the render above; the count fills in when the answer
+            # arrives.
+            self._refresh_in_background()
             self._start_timers()
 
     # -- chrome ---------------------------------------------------------
@@ -340,7 +350,13 @@ class AgentHud(RavenApp):
         self._first_data_render_done = True
 
     def refresh_now(self) -> None:
-        """Fetch once, on this thread. Used at startup and in tests."""
+        """Fetch once, on this thread, and apply the result.
+
+        Startup goes through ``_refresh_in_background`` instead, so a slow
+        gateway cannot hold the first frame. This blocking form is for
+        tests, where a synchronous fetch against a local stub is what the
+        assertions expect.
+        """
         self.apply(self._fetch(self._settings.gateway_url, DEFAULT_TIMEOUT_SECONDS))
 
     # -- drawing --------------------------------------------------------
