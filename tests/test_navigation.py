@@ -342,3 +342,28 @@ def test_a_page_past_the_end_is_empty_rather_than_an_error():
     from agent_hud.navigation import detail_page
 
     assert detail_page(WAITING, 999) == ""
+
+
+# --- the result screen is the wearer's, not the gateway's -------------
+
+
+def test_a_refresh_never_moves_someone_off_the_result_screen(tasks):
+    # Answering a task usually resolves it, so the very next refresh has
+    # nothing waiting. Without this rule the wearer would be thrown to the
+    # resting screen before they had read whether their answer worked.
+    nav = Nav(screen=Screen.RESULT, task_id="t1", action_id="approve")
+
+    assert nav_for_tasks(nav, []) == nav
+    assert nav_for_tasks(nav, tasks) == nav
+
+
+def test_the_result_screen_survives_its_own_task_disappearing(tasks):
+    nav = Nav(screen=Screen.RESULT, task_id="gone", action_id="approve")
+
+    assert nav_for_tasks(nav, tasks).screen is Screen.RESULT
+
+
+def test_leaving_the_result_screen_is_the_wearers_choice(tasks):
+    nav = Nav(screen=Screen.RESULT, task_id="t1", action_id="approve")
+
+    assert advance(nav, Event.BACK, tasks).screen is Screen.TASK_LIST

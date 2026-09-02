@@ -156,3 +156,24 @@ def test_animations_can_be_switched_off(value):
 @pytest.mark.parametrize("value", ["1", "on", "true", "yes", "anything"])
 def test_animations_stay_on_for_anything_else(value):
     assert load_settings(env={"AGENT_HUD_ANIMATIONS": value}).animations is True
+
+
+# --- the gateway's root, for sending answers back ---------------------
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("http://127.0.0.1:8765/tasks", "http://127.0.0.1:8765"),
+        ("https://gw.example/tasks", "https://gw.example"),
+        ("https://gw.example/agent/hud/tasks", "https://gw.example"),
+        ("https://gw.example", "https://gw.example"),
+        ("https://gw.example/", "https://gw.example"),
+    ],
+)
+def test_the_gateway_root_is_taken_from_the_read_address(url, expected):
+    # Reading and answering are two paths on the same server, so the
+    # address is configured once rather than asked for twice.
+    settings = load_settings(env={"AGENT_HUD_GATEWAY_URL": url})
+
+    assert settings.gateway_base == expected

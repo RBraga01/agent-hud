@@ -29,11 +29,20 @@ from raven_framework.helpers.themes import RAVEN_CORE as theme
 
 from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_tasks
 from .config import Settings, load_settings
+from .feedback import (
+    Feedback,
+    SendOutcome,
+    SendResult,
+    new_request_id,
+    send_feedback,
+)
 from .navigation import Event, Nav, Screen, advance, nav_for_tasks
 from .screens import (
+    SendState,
     build_action_menu,
     build_attention,
     build_confirmation,
+    build_result,
     build_task_detail,
     build_task_list,
 )
@@ -67,6 +76,15 @@ CLOCK_TICK_MS = 10_000
 IDLE_COLOR = theme.basic_palette.blue
 INCOMPLETE_COLOR = theme.basic_palette.yellow
 
+# What each outcome is allowed to say on screen. Only ACCEPTED becomes
+# "Sent", and even that means no more than "the gateway took it".
+_SEND_STATES = {
+    SendOutcome.ACCEPTED: SendState.SENT,
+    SendOutcome.STALE: SendState.STALE,
+    SendOutcome.REJECTED: SendState.REFUSED,
+    SendOutcome.UNREACHABLE: SendState.FAILED,
+}
+
 
 class AgentHud(RavenApp):
     """Shows how many things are waiting on you, and lets you answer them.
@@ -76,6 +94,7 @@ class AgentHud(RavenApp):
         settings: Where the gateway is and how often to ask. Read from the
             environment when not given.
         fetch: How to reach the gateway. Replaced in tests.
+        send: How to send an answer back. Replaced in tests.
         gaze: Where the wearer is looking, or None if unknown.
         clock: Source of the current time, in seconds.
         auto_start: Whether to kick the first background fetch and start
@@ -89,6 +108,7 @@ class AgentHud(RavenApp):
         *,
         settings: Settings | None = None,
         fetch: Callable[..., FetchResult] | None = None,
+        send: Callable[..., SendResult] | None = None,
         gaze: Callable[[], tuple[int, int] | None] | None = None,
         clock: Callable[[], float] | None = None,
         auto_start: bool = True,
@@ -97,6 +117,7 @@ class AgentHud(RavenApp):
 
         self._settings = settings or load_settings()
         self._fetch = fetch or fetch_tasks
+        self._send = send or send_feedback
         self._gaze = gaze or _default_gaze
         self._clock = clock or time.monotonic
 
@@ -108,6 +129,14 @@ class AgentHud(RavenApp):
         self._dropped = 0
         self._truncated = 0
         self._fetching = False
+
+        # The answer in flight, if any. Kept on the instance so a redraw
+        # cannot lose the request id a retry needs.
+        self._send_state = SendState.SENDING
+        self._send_reason = ""
+        self._outgoing: Feedback | None = None
+        self._send_result: SendResult | None = None
+        self._sending = False
 
         self._async = AsyncRunner()
         self._pending: FetchResult | None = None
@@ -225,6 +254,11 @@ class AgentHud(RavenApp):
         return find_task(self._tasks, self._nav.task_id)
 
     @property
+    def send_state(self) -> SendState:
+        """How far the answer in flight has got, if there is one."""
+        return self._send_state
+
+    @property
     def gaze_position(self) -> tuple[int, int] | None:
         """Where the wearer is last known to have been looking.
 
@@ -264,13 +298,49 @@ class AgentHud(RavenApp):
         self._fire(Event.SELECT_SECONDARY)
 
     def confirm(self) -> None:
-        """The only step that would ever transmit.
+        """The only step that transmits. Everything before this was local.
 
-        Nothing is sent yet: the feedback protocol is not built. Until it
-        is, this lands on a result screen that says so plainly rather than
-        claiming an action was taken.
+        Moves to the result screen straight away, showing "Sending", and
+        does the sending off the main thread. Freezing the display for a
+        five second timeout would be its own kind of failure.
         """
+        task = self.current_task
+        if task is None or self._nav.action_id is None:
+            return
+
+        self._outgoing = Feedback(
+            task_id=task.id,
+            revision=task.revision,
+            action_id=self._nav.action_id,
+            request_id=new_request_id(),
+        )
+        self._send_state = SendState.SENDING
+        self._send_reason = ""
         self._fire(Event.CONFIRM)
+        self._send_in_background()
+
+    def retry_send(self) -> None:
+        """Send the same answer again, with the same request id.
+
+        Offered only when we do not know whether the first attempt
+        arrived. Reusing the id is what makes it safe: a gateway that did
+        receive it recognises the second attempt rather than acting twice.
+        """
+        if self._outgoing is None or self._send_state is not SendState.FAILED:
+            return
+        self._send_state = SendState.SENDING
+        self._send_reason = ""
+        self._render()
+        self._send_in_background()
+
+    def read_again(self) -> None:
+        """Go back to the task after it changed under a pending answer."""
+        if self._nav.task_id is None:
+            return
+        task_id = self._nav.task_id
+        self._outgoing = None
+        self._fire(Event.BACK)
+        self._fire(Event.ACTIVATE, task_id=task_id)
 
     def cancel(self) -> None:
         """Step back out of the current screen without doing anything."""
@@ -345,6 +415,8 @@ class AgentHud(RavenApp):
             self._nav.stale,
             self.count_text,
             self.is_complete,
+            self._send_state.value,
+            self._send_reason,
             None if task is None else (task.revision, task.title, task.summary),
             tuple((t.id, t.source, t.summary) for t in self.waiting),
         )
@@ -458,36 +530,17 @@ class AgentHud(RavenApp):
         )
 
     def _draw_result(self):
-        """What happened after OK.
-
-        Says only what is true. The feedback protocol is not built, so
-        this reports that nothing was sent rather than implying it was.
-        Claiming success it cannot verify is the failure this whole app is
-        designed around.
-        """
-        from .screens import parts
-
-        task = self.current_task
-        width = 440
-        card = parts.card(width)
-        inner = width - s.CARD_MARGIN * 2
-        card.add(parts.label("Not sent", width=inner))
-        card.add(
-            parts.body(
-                "This version of Agent HUD can show you what is waiting and "
-                "let you choose what to do, but it cannot send an answer "
-                "back yet.",
-                inner,
+        """What happened after OK. Says only what the gateway confirmed."""
+        return self._place(
+            build_result(
+                self._send_state,
+                task=self.current_task,
+                reason=self._send_reason,
+                on_back=self.back,
+                on_retry=self.retry_send,
+                on_read_again=self.read_again,
             )
         )
-        if task is not None:
-            card.add(parts.small(task.title, width=inner, align="left"))
-        card.add(
-            parts.button_row(
-                inner, [parts.secondary_button("Back", self.back, width=160)]
-            )
-        )
-        return self._place(card)
 
     def _place(self, widget):
         """Put a screen in the middle of the display."""
@@ -613,6 +666,37 @@ class AgentHud(RavenApp):
             # Cleared even if the fetch or the redraw failed, or the guard
             # would latch and polling would stop for good.
             self._fetching = False
+
+    def _send_in_background(self) -> None:
+        """Send the pending answer off the main thread. One at a time."""
+        if self._sending or self._outgoing is None:
+            return
+        self._sending = True
+        outgoing = self._outgoing
+
+        def work() -> None:
+            self._send_result = self._send(
+                self._settings.gateway_base, outgoing, DEFAULT_TIMEOUT_SECONDS
+            )
+
+        self._async.run(work, on_complete=self._apply_send_result)
+
+    def _apply_send_result(self) -> None:
+        """Runs on the main thread once the send finishes, always."""
+        try:
+            result = self._send_result
+            self._send_result = None
+            if result is None:
+                # The worker never produced one, so we genuinely do not
+                # know whether it arrived. That is what FAILED means.
+                self._send_state = SendState.FAILED
+                self._send_reason = ""
+            else:
+                self._send_state = _SEND_STATES[result.outcome]
+                self._send_reason = result.reason
+        finally:
+            self._sending = False
+            self._render()
 
     def _tick_gaze_from_sensor(self) -> None:
         self.tick_gaze(gaze_position=self._gaze())

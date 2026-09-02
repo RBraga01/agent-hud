@@ -656,3 +656,224 @@ def test_a_data_change_on_the_same_screen_does_not_animate(qapp):
 
     assert hud._transitioning is False
     assert hud.count_text == "2"
+
+
+# --- sending, and saying only what is known ---------------------------
+
+from agent_hud.feedback import SendOutcome, SendResult  # noqa: E402
+from agent_hud.screens import SendState  # noqa: E402
+
+
+def make_sending_hud(qapp, outcome=SendOutcome.ACCEPTED, reason="", record=None):
+    """A HUD whose gateway answers a send in a known way."""
+
+    def send(base, feedback, timeout=None):
+        if record is not None:
+            record.append(feedback)
+        return SendResult(
+            outcome=outcome, reason=reason, request_id=feedback.request_id
+        )
+
+    result = FetchResult(tasks=[WAITING], ok=True)
+    hud = AgentHud(
+        settings=SETTINGS,
+        fetch=lambda url, timeout: result,
+        send=send,
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    hud.refresh_now()
+    return hud
+
+
+def walk_to_confirm(qapp, hud, task_id="a"):
+    hud.open_list()
+    hud.select_task(task_id)
+    hud.take_action()
+    hud.select_primary()
+    pump(qapp)
+    return hud
+
+
+def settle_send(qapp, hud, deadline_s=5.0):
+    end = time.monotonic() + deadline_s
+    while hud._sending and time.monotonic() < end:
+        pump(qapp)
+        time.sleep(0.01)
+    for _ in range(4):
+        pump(qapp)
+        time.sleep(0.01)
+
+
+def test_nothing_is_sent_until_the_final_confirmation(qapp):
+    sent = []
+    hud = make_sending_hud(qapp, record=sent)
+
+    hud.open_list()
+    hud.select_task("a")
+    hud.take_action()
+    hud.select_primary()
+    pump(qapp)
+
+    assert sent == [], "walking to the confirmation screen must send nothing"
+
+
+def test_confirming_sends_the_task_the_revision_and_the_action(qapp):
+    sent = []
+    hud = make_sending_hud(qapp, record=sent)
+    walk_to_confirm(qapp, hud)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert len(sent) == 1
+    assert sent[0].task_id == "a"
+    assert sent[0].revision == WAITING.revision
+    assert sent[0].action_id == "approve"
+    assert sent[0].request_id
+
+
+def test_an_accepted_answer_says_sent_and_nothing_stronger(qapp):
+    hud = make_sending_hud(qapp, outcome=SendOutcome.ACCEPTED)
+    walk_to_confirm(qapp, hud)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert hud.screen is Screen.RESULT
+    assert hud.send_state is SendState.SENT
+
+
+def test_an_unreachable_gateway_never_reads_as_sent(qapp):
+    # The failure this whole design exists to prevent.
+    hud = make_sending_hud(qapp, outcome=SendOutcome.UNREACHABLE)
+    walk_to_confirm(qapp, hud)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert hud.send_state is SendState.FAILED
+
+
+def test_a_stale_task_says_so_rather_than_failing(qapp):
+    hud = make_sending_hud(qapp, outcome=SendOutcome.STALE, reason="it changed")
+    walk_to_confirm(qapp, hud)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert hud.send_state is SendState.STALE
+
+
+def test_a_refused_action_says_refused(qapp):
+    hud = make_sending_hud(qapp, outcome=SendOutcome.REJECTED, reason="no such action")
+    walk_to_confirm(qapp, hud)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert hud.send_state is SendState.REFUSED
+
+
+def test_a_retry_reuses_the_same_request_id(qapp):
+    # If the first attempt did arrive and only the answer was lost, the
+    # gateway must recognise the second rather than acting twice.
+    sent = []
+    hud = make_sending_hud(qapp, outcome=SendOutcome.UNREACHABLE, record=sent)
+    walk_to_confirm(qapp, hud)
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    hud.retry_send()
+    settle_send(qapp, hud)
+
+    assert len(sent) == 2
+    assert sent[0].request_id == sent[1].request_id
+
+
+def test_a_retry_is_only_offered_when_we_do_not_know(qapp):
+    sent = []
+    hud = make_sending_hud(qapp, outcome=SendOutcome.REJECTED, record=sent)
+    walk_to_confirm(qapp, hud)
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    hud.retry_send()
+    settle_send(qapp, hud)
+
+    assert len(sent) == 1, "a refusal must not be asked again unchanged"
+
+
+def test_confirming_with_nothing_chosen_sends_nothing(qapp):
+    sent = []
+    hud = make_sending_hud(qapp, record=sent)
+    hud.open_list()
+    hud.select_task("a")
+    pump(qapp)
+
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    assert sent == []
+    assert hud.screen is Screen.TASK_DETAIL
+
+
+def test_answering_does_not_throw_you_off_the_result_screen(qapp):
+    # Answering usually resolves the task, so the very next poll has
+    # nothing waiting. The acknowledgement must survive that.
+    hud = make_sending_hud(qapp)
+    walk_to_confirm(qapp, hud)
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    hud.apply(FetchResult(tasks=[], ok=True))
+    pump(qapp)
+
+    assert hud.screen is Screen.RESULT
+    assert hud.send_state is SendState.SENT
+
+
+def test_leaving_the_result_screen_is_the_wearers_own_move(qapp):
+    hud = make_sending_hud(qapp)
+    walk_to_confirm(qapp, hud)
+    hud.confirm()
+    settle_send(qapp, hud)
+
+    hud.back()
+
+    assert hud.screen is Screen.TASK_LIST
+
+
+def test_the_display_does_not_freeze_while_an_answer_is_in_flight(qapp):
+    import threading
+
+    release = threading.Event()
+
+    def slow_send(base, feedback, timeout=None):
+        release.wait(2)
+        return SendResult(outcome=SendOutcome.ACCEPTED, request_id=feedback.request_id)
+
+    result = FetchResult(tasks=[WAITING], ok=True)
+    hud = AgentHud(
+        settings=SETTINGS, fetch=lambda u, t: result, send=slow_send,
+        gaze=lambda: None, clock=lambda: 0.0, auto_start=False,
+    )
+    hud.refresh_now()
+    walk_to_confirm(qapp, hud)
+
+    try:
+        start = time.monotonic()
+        hud.confirm()
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0, "confirm() blocked the display on the network"
+        assert hud.screen is Screen.RESULT
+        assert hud.send_state is SendState.SENDING
+
+        release.set()
+        settle_send(qapp, hud)
+        assert hud.send_state is SendState.SENT
+    finally:
+        release.set()
+        settle_send(qapp, hud)

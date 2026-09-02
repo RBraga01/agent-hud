@@ -59,6 +59,7 @@ class Event(str, Enum):
     SELECT_SECONDARY = "select_secondary"
     SELECT_AUDIO = "select_audio"
     CONFIRM = "confirm"
+    RETRY = "retry"
     SCROLL_UP = "scroll_up"
     SCROLL_DOWN = "scroll_down"
 
@@ -211,9 +212,19 @@ def nav_for_tasks(nav: Nav, tasks: list[Task]) -> Nav:
     if nav.screen is Screen.IDLE:
         return replace(nav, screen=Screen.ATTENTION) if waiting else nav
 
+    if nav.screen is Screen.RESULT:
+        return nav
+
     if not waiting:
         # Everything resolved while they were looking at it. Back to rest.
         return Nav(screen=Screen.IDLE)
+
+    if nav.screen is Screen.RESULT:
+        # Never move someone off the acknowledgement of something they
+        # just did. Answering a task usually resolves it, so the very next
+        # refresh would otherwise throw them to the resting screen before
+        # they had read whether it worked.
+        return nav
 
     if nav.screen in (Screen.ATTENTION, Screen.TASK_LIST):
         return nav

@@ -68,6 +68,22 @@ class Settings:
     skip_path_words: tuple[str, ...] = ()
 
     @property
+    def gateway_base(self) -> str:
+        """The gateway's root, without the path that fetches the list.
+
+        Reading and answering are two different paths on the same server,
+        so the address is configured once, as the read URL, and the root
+        is taken from it rather than asking for the same host twice.
+        """
+        marker = "://"
+        start = self.gateway_url.find(marker)
+        if start == -1:
+            return self.gateway_url.rstrip("/")
+        slash = self.gateway_url.find("/", start + len(marker))
+        base = self.gateway_url if slash == -1 else self.gateway_url[:slash]
+        return base.rstrip("/")
+
+    @property
     def poll_interval_ms(self) -> int:
         """The interval as milliseconds, which is what the display timer wants."""
         return int(self.poll_seconds * _MILLISECONDS_PER_SECOND)
