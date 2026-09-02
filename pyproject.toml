@@ -16,6 +16,11 @@ dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+# Only the gateway ever needs these, and only for what they name.
+# Nothing here is installed by default and nothing reaches the glasses:
+# the deployed app is main.py plus agent_hud/, and neither imports them.
+gateway = ["webauthn>=2.0"]           # passkeys, for exposing the gateway
+speech = ["faster-whisper>=1.0"]      # local transcription, for Audio
 
 # Declared explicitly. With two top-level packages in a flat layout,
 # setuptools refuses to guess and the install fails, which a local editable

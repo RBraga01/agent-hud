@@ -28,6 +28,7 @@ const state = {
   online: false,
   draft: null, // whatever the gateway says is pending
   pending: null, // what the confirm dialog will do
+  auth: null, // what the gateway says about signing in
 };
 
 // --- talking to the gateway -------------------------------------------
@@ -75,6 +76,150 @@ function newRequestId() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// --- signing in -------------------------------------------------------
+//
+// Passkeys. Your phone or laptop holds a private key and proves it holds
+// it; what reaches the gateway is a public key and a signature. No
+// password is typed, stored or sent, and no fingerprint or face ever
+// leaves the device it was checked on -- the sensor unlocks the key
+// locally, and the gateway is not even told that one was used.
+
+const b64urlToBytes = (value) => {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+};
+
+const bytesToB64url = (buffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+/* The browser hands back ArrayBuffers; the gateway speaks base64url. */
+function credentialToJSON(credential) {
+  const r = credential.response;
+  const out = {
+    id: credential.id,
+    rawId: bytesToB64url(credential.rawId),
+    type: credential.type,
+    clientExtensionResults: credential.getClientExtensionResults?.() ?? {},
+    response: { clientDataJSON: bytesToB64url(r.clientDataJSON) },
+  };
+  if (r.attestationObject) {
+    out.response.attestationObject = bytesToB64url(r.attestationObject);
+  }
+  if (r.authenticatorData) {
+    out.response.authenticatorData = bytesToB64url(r.authenticatorData);
+    out.response.signature = bytesToB64url(r.signature);
+    if (r.userHandle) out.response.userHandle = bytesToB64url(r.userHandle);
+  }
+  return out;
+}
+
+function decodeOptions(options) {
+  const decoded = { ...options, challenge: b64urlToBytes(options.challenge) };
+  if (options.user) {
+    decoded.user = { ...options.user, id: b64urlToBytes(options.user.id) };
+  }
+  for (const key of ["excludeCredentials", "allowCredentials"]) {
+    if (Array.isArray(options[key])) {
+      decoded[key] = options[key].map((c) => ({ ...c, id: b64urlToBytes(c.id) }));
+    }
+  }
+  return decoded;
+}
+
+async function registerPasskey() {
+  authSay("Follow the prompt on your device\u2026");
+  try {
+    const options = await getJSON("/auth/register/options");
+    const credential = await navigator.credentials.create({
+      publicKey: decodeOptions(options),
+    });
+    const result = await postJSON("/auth/register", {
+      credential: credentialToJSON(credential),
+      name: navigator.platform || "this device",
+    });
+    if (result.status !== 200) {
+      authSay(result.payload.error || "That did not work.");
+      return;
+    }
+    await signIn();
+  } catch (error) {
+    authSay(error?.message || "That did not work.");
+  }
+}
+
+async function signIn() {
+  authSay("Follow the prompt on your device\u2026");
+  try {
+    const options = await getJSON("/auth/login/options");
+    const credential = await navigator.credentials.get({
+      publicKey: decodeOptions(options),
+    });
+    const result = await postJSON("/auth/login", {
+      credential: credentialToJSON(credential),
+    });
+    if (result.status !== 200) {
+      authSay(result.payload.error || "That passkey was not accepted.");
+      return;
+    }
+    await refresh();
+  } catch (error) {
+    authSay(error?.message || "That passkey was not accepted.");
+  }
+}
+
+function authSay(message) {
+  $("auth-body").textContent = message;
+}
+
+function renderAuth() {
+  const card = $("auth-card");
+  const auth = state.auth;
+
+  // Nothing to show when the gateway is not asking, or already knows us.
+  const needed = Boolean(auth?.required) && !auth?.signed_in;
+  card.hidden = !needed;
+  document.querySelectorAll("main > section:not(#auth-card)").forEach((s) => {
+    s.hidden = needed || s.id === "pending-card" ? s.hidden : false;
+  });
+  if (needed) {
+    document.querySelectorAll("main > section:not(#auth-card)").forEach((s) => {
+      s.hidden = true;
+    });
+  }
+  if (!needed) return;
+
+  const buttons = $("auth-buttons");
+  buttons.innerHTML = "";
+
+  if (!auth.available) {
+    authSay(
+      "This gateway asks for a passkey but the library that checks one is " +
+        'not installed. On the gateway: pip install ".[gateway]"',
+    );
+    return;
+  }
+
+  if (!auth.registered) {
+    authSay(
+      "No device is registered yet. Register this one to be the key for " +
+        "this gateway. Nothing is typed and no password is stored.",
+    );
+    const register = el("button", "primary", "Register this device");
+    register.addEventListener("click", registerPasskey);
+    buttons.append(register);
+    return;
+  }
+
+  authSay("Use your passkey to continue.");
+  const button = el("button", "primary", "Sign in");
+  button.addEventListener("click", signIn);
+  buttons.append(button);
 }
 
 // --- drawing ----------------------------------------------------------
@@ -249,6 +394,8 @@ function renderDraft() {
 }
 
 function render() {
+  renderAuth();
+  if (state.auth?.required && !state.auth?.signed_in) return;
   renderStatus();
   renderTasks();
   renderSources();
@@ -400,6 +547,17 @@ function say(message) {
 // --- keeping up to date -----------------------------------------------
 
 async function refresh() {
+  try {
+    state.auth = await getJSON("/auth/state");
+  } catch {
+    state.auth = null;
+  }
+  if (state.auth?.required && !state.auth?.signed_in) {
+    state.online = false;
+    render();
+    return;
+  }
+
   try {
     const [tasks, settings, drafts] = await Promise.all([
       getJSON("/tasks"),

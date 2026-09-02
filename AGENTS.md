@@ -34,6 +34,7 @@ So every decision worth testing lives in a module that does not import the frame
 | `stub_server/policy.py` | no | what that gateway will accept, and what it does about it |
 | `stub_server/transcription.py` | no | the speech engine interface. No engine ships; the plug is empty by default |
 | `stub_server/drafts.py` | no | replies being written, before they are sent. Temporary by construction |
+| `stub_server/auth.py` | no | passkeys: what is stored, how long a session lasts, what must be proved again |
 | `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
 | `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
 | `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
@@ -81,26 +82,39 @@ Two protections travel with every answer and guard different things. **`revision
 
 The gateway checks every incoming answer against the actions **it** would have offered for that task, never against what the request claims. An agent cannot put an executable button on someone's face by naming one in a payload.
 
-## The gateway has no authentication
+## The gateway is unlocked unless it is told otherwise
 
-It binds to `127.0.0.1`, there is no host parameter, and two tests make
-sure it stays that way. That is defensible while the only thing that can
-reach it is the machine it runs on, and indefensible the moment it is
-not: it serves whatever the feeders report and accepts answers, to
-anybody who asks.
+By default it asks for nothing and binds to `127.0.0.1`. There is no host
+parameter, and two tests keep it that way, because an unlocked gateway
+that anyone can reach serves everything your agents are doing and accepts
+answers on your behalf.
 
-So: **do not add a host argument, a reverse proxy config, or a tunnel
-until there is authentication in front of it.** The design is passkeys,
-so that no password and no biometric ever reaches the gateway — only a
-public key — and it is not built. A half-built lock would be worse than
-an honest open door, because it would invite exactly the exposure it
-could not survive.
+`AGENT_HUD_REQUIRE_AUTH=1` turns on passkeys. Then everything that reads
+your work or acts for you needs a session; only the sign-in ceremony and
+the Control's own files stay open, because otherwise there would be no
+way in.
 
-The Control page carries a content security policy that confines it to
-its own origin, so a browser enforces "talks to nothing else" even if the
-page is later changed by mistake. Files are served from `control/` by
-basename only, and only for a short list of content types, so no amount
-of dots or slashes in a request reaches outside the folder.
+**Do not add a host argument.** Turning the lock on is what makes putting
+the gateway somewhere else defensible; it is not what does it, and that
+should stay a separate deliberate act behind TLS.
+
+Three things about `auth.py` worth keeping true:
+
+- **The ceremonies are `py_webauthn`'s.** Verifying a WebAuthn signature
+  means parsing COSE keys and getting a dozen small things right. A
+  subtly wrong version is worse than no lock, because it still looks like
+  one. What lives here is policy, not cryptography.
+- **`Credential` has no field that could hold a secret.** A test asserts
+  the exact field set. If one ever appears that could hold a password, a
+  private key or anything derived from a fingerprint, that test is what
+  should stop it.
+- **Sessions do not survive a restart; credentials do.** Signing everyone
+  out is the safe direction to fail in. Making somebody re-register their
+  phone on every reboot would train them to click through it.
+
+Administration — adding a passkey, revoking one — needs a *recent* sign
+in, not just a live session. Somebody who picks up an unlocked phone
+should not be able to quietly unpair the glasses.
 
 ## The recording is never kept
 

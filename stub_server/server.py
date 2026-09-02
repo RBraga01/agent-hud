@@ -28,6 +28,15 @@ from pathlib import Path
 
 from agent_hud.preferences import Preferences, to_payload
 
+from .auth import (
+    AuthStore,
+    AuthUnavailable,
+    authentication_options,
+    library_available,
+    registration_options,
+    verify_authentication,
+    verify_registration,
+)
 from .drafts import DraftBook
 from .policy import Policy
 from .transcription import (
@@ -41,6 +50,8 @@ SETTINGS_PATH = "/settings"
 CONTROL_PREFIX = "/control/"
 AUDIO_SUFFIX = "/audio"
 DRAFTS_PATH = "/drafts"
+AUTH_PREFIX = "/auth/"
+SESSION_COOKIE = "agent_hud_session"
 
 CONTROL_DIR = Path(__file__).parent.parent / "control"
 
@@ -70,8 +81,151 @@ class _TasksHandler(BaseHTTPRequestHandler):
     # Set by create_server.
     data_path: Path
 
+    # -- who is asking --------------------------------------------------
+
+    def _session_token(self) -> str | None:
+        raw = self.headers.get("Cookie", "")
+        for part in raw.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == SESSION_COOKIE:
+                return value
+        return None
+
+    def _allowed(self, path: str) -> bool:
+        """Whether this request may proceed.
+
+        With authentication off, everything may -- which is only
+        defensible because the gateway will not listen anywhere but
+        loopback. With it on, only the sign-in ceremony and the Control's
+        own files are open; everything that reads your work or acts on
+        your behalf needs a session.
+        """
+        if not self.server.require_auth:
+            return True
+        if path.startswith(AUTH_PREFIX) or path.startswith(CONTROL_PREFIX):
+            return True
+        if path in ("/", CONTROL_PREFIX.rstrip("/")):
+            return True
+        return self.server.auth.is_signed_in(self._session_token())
+
+    def _rp(self) -> tuple[str, str]:
+        """The name and origin a passkey is bound to.
+
+        Taken from the address the browser actually used, so a passkey
+        registered against one hostname cannot be replayed against
+        another.
+        """
+        host = self.headers.get("Host", "localhost")
+        name = host.split(":")[0]
+        scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+        return name, f"{scheme}://{host}"
+
+    def _handle_auth(self, path: str) -> None:
+        """The sign-in ceremony. Nothing here reads or changes your work."""
+        what = path[len(AUTH_PREFIX):]
+        store = self.server.auth
+        rp_id, origin = self._rp()
+
+        if what == "state":
+            self._respond(
+                200,
+                {
+                    "required": self.server.require_auth,
+                    "available": library_available(),
+                    "registered": store.has_credentials,
+                    "signed_in": store.is_signed_in(self._session_token()),
+                },
+            )
+            return
+
+        try:
+            if what == "register/options":
+                # Only before the first passkey exists, or from a session
+                # that has proved itself recently. Otherwise anyone who
+                # reached the page could add their own key.
+                if store.has_credentials and not store.is_fresh(
+                    self._session_token()
+                ):
+                    self._respond(403, {"error": "sign in again to add a device"})
+                    return
+                self._respond(200, registration_options(
+                    store, rp_id=rp_id, origin=origin
+                ))
+                return
+
+            if what == "register":
+                body = self._body(MAX_REQUEST_BYTES)
+                if body is None:
+                    return
+                payload = json.loads(body or b"null")
+                if not isinstance(payload, dict):
+                    self._respond(400, {"error": "body is not an object"})
+                    return
+                if store.has_credentials and not store.is_fresh(
+                    self._session_token()
+                ):
+                    self._respond(403, {"error": "sign in again to add a device"})
+                    return
+                credential = verify_registration(
+                    store,
+                    json.dumps(payload.get("credential")),
+                    rp_id=rp_id,
+                    origin=origin,
+                    name=str(payload.get("name", "device")),
+                )
+                self._respond(200, {"name": credential.name})
+                return
+
+            if what == "login/options":
+                self._respond(200, authentication_options(store, rp_id=rp_id))
+                return
+
+            if what == "login":
+                body = self._body(MAX_REQUEST_BYTES)
+                if body is None:
+                    return
+                payload = json.loads(body or b"null")
+                if not isinstance(payload, dict):
+                    self._respond(400, {"error": "body is not an object"})
+                    return
+                token = verify_authentication(
+                    store,
+                    json.dumps(payload.get("credential")),
+                    rp_id=rp_id,
+                    origin=origin,
+                )
+                self._respond(200, {"signed_in": True}, session=token)
+                return
+
+            if what == "logout":
+                store.close_session(self._session_token())
+                self._respond(200, {"signed_in": False}, session="")
+                return
+
+        except AuthUnavailable as exc:
+            self._respond(501, {"error": str(exc)})
+            return
+        except ValueError as exc:
+            self._respond(400, {"error": str(exc)})
+            return
+        except Exception:
+            # A ceremony that fails verification must say no and nothing
+            # more. The reason is for the log, not for whoever asked.
+            self._respond(401, {"error": "that did not check out"})
+            return
+
+        self._respond(404, {"error": "not found"})
+
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
+
+        if path.startswith(AUTH_PREFIX):
+            self._handle_auth(path)
+            return
+
+        if not self._allowed(path):
+            self._respond(401, {"error": "sign in first"})
+            return
 
         if path == "/" or path == CONTROL_PREFIX.rstrip("/"):
             self._redirect(CONTROL_PREFIX)
@@ -124,6 +278,14 @@ class _TasksHandler(BaseHTTPRequestHandler):
         handler only reads the body safely and hands it over.
         """
         path = self.path.split("?")[0]
+
+        if path.startswith(AUTH_PREFIX):
+            self._handle_auth(path)
+            return
+
+        if not self._allowed(path):
+            self._respond(401, {"error": "sign in first"})
+            return
 
         if path.startswith(TASKS_PATH + "/") and path.endswith(AUDIO_SUFFIX):
             self._take_audio(path[len(TASKS_PATH) + 1 : -len(AUDIO_SUFFIX)])
@@ -318,11 +480,24 @@ class _TasksHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _respond(self, status: int, payload: object) -> None:
+    def _respond(
+        self, status: int, payload: object, *, session: str | None = None
+    ) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if session is not None:
+            # HttpOnly so no script can read it, SameSite so another site
+            # cannot make a browser use it. Not Secure, because this is
+            # served over plain http on loopback; anything exposed beyond
+            # that belongs behind TLS, which would add it.
+            cookie = (
+                f"{SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict"
+            )
+            if not session:
+                cookie += "; Max-Age=0"
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(body)
 
@@ -343,6 +518,8 @@ class _TasksServer(ThreadingHTTPServer):
         gateway_name: str = "this machine",
         sources: list[dict] | None = None,
         transcriber: str = "",
+        require_auth: bool = False,
+        auth_path: Path | None = None,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -358,6 +535,10 @@ class _TasksServer(ThreadingHTTPServer):
         # nobody can process.
         self.transcriber = load_transcriber(transcriber)
         self.drafts = DraftBook()
+        # Off unless asked for. Turning it on is what would make
+        # leaving loopback defensible; it does not do that by itself.
+        self.require_auth = bool(require_auth)
+        self.auth = AuthStore(path=auth_path)
         super().__init__(address, _TasksHandler)
 
 
@@ -368,6 +549,8 @@ def create_server(
     gateway_name: str = "this machine",
     sources: list[dict] | None = None,
     transcriber: str = "",
+    require_auth: bool = False,
+    auth_path: Path | None = None,
 ) -> _TasksServer:
     """Build a server bound to loopback.
 
@@ -381,6 +564,8 @@ def create_server(
         gateway_name=gateway_name,
         sources=sources,
         transcriber=transcriber,
+        require_auth=require_auth,
+        auth_path=auth_path,
     )
 
 
@@ -396,6 +581,8 @@ def main() -> None:
         port=port,
         gateway_name=settings.active_gateway.name,
         transcriber=settings.transcriber,
+        require_auth=settings.require_auth,
+        auth_path=settings.auth_path,
         sources=[
             {"name": name, "label": name.replace("_", " ").title(), "on": True}
             for name in settings.feeders

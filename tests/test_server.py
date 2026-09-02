@@ -648,3 +648,197 @@ def test_acting_on_a_draft_that_is_gone_is_not_found(hearing_gateway):
     base, _, _ = hearing_gateway
 
     assert requests.post(f"{base}/drafts/nope/discard", timeout=5).status_code == 404
+
+
+# --- the lock, when it is on ------------------------------------------
+
+
+@pytest.fixture
+def locked_gateway(tmp_path):
+    """A gateway that asks for a passkey before it says anything."""
+    from stub_server.server import create_server
+
+    server = create_server(
+        lambda: [dict(TASK)],
+        port=0,
+        require_auth=True,
+        auth_path=tmp_path / "passkeys.json",
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield base, server
+
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+def test_the_lock_is_off_by_default(gateway):
+    base, _ = gateway
+
+    assert _get(base, "/auth/state").json()["required"] is False
+    assert _get(base, "/tasks").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "path", ["/tasks", "/settings", "/drafts"]
+)
+def test_with_the_lock_on_nothing_of_yours_is_readable(locked_gateway, path):
+    base, _ = locked_gateway
+
+    response = _get(base, path)
+
+    assert response.status_code == 401
+
+
+def test_with_the_lock_on_nothing_can_be_answered(locked_gateway):
+    base, _ = locked_gateway
+
+    response = requests.post(
+        f"{base}/tasks/task-17/feedback",
+        json={"revision": 4, "type": "action", "action_id": "approve",
+              "request_id": "r"},
+        timeout=5,
+    )
+
+    assert response.status_code == 401
+
+
+def test_the_sign_in_page_itself_stays_reachable(locked_gateway):
+    # Otherwise there would be no way in.
+    base, _ = locked_gateway
+
+    assert _get(base, "/control/").status_code == 200
+    assert _get(base, "/control/control.js").status_code == 200
+    assert _get(base, "/auth/state").status_code == 200
+
+
+def test_the_state_endpoint_says_what_is_needed(locked_gateway):
+    """Including whether this gateway can check a passkey at all.
+
+    A gateway that demands one it cannot verify has to say so, or the
+    Control would show a sign-in button that could never work.
+    """
+    from stub_server.auth import library_available
+
+    base, _ = locked_gateway
+
+    state = _get(base, "/auth/state").json()
+
+    assert state["required"] is True
+    assert state["signed_in"] is False
+    assert state["registered"] is False
+    assert state["available"] is library_available()
+
+
+def test_an_invented_session_cookie_does_not_get_in(locked_gateway):
+    base, _ = locked_gateway
+
+    response = requests.get(
+        f"{base}/tasks",
+        headers={"Cookie": "agent_hud_session=invented"},
+        timeout=5,
+    )
+
+    assert response.status_code == 401
+
+
+def test_a_real_session_gets_in(locked_gateway):
+    # The ceremony itself is the library's; this checks that a session it
+    # produced is what the gate actually honours.
+    base, server = locked_gateway
+    token = server.auth.open_session()
+
+    response = requests.get(
+        f"{base}/tasks",
+        headers={"Cookie": f"agent_hud_session={token}"},
+        timeout=5,
+    )
+
+    assert response.status_code == 200
+
+
+def test_signing_out_stops_it_getting_in_again(locked_gateway):
+    base, server = locked_gateway
+    token = server.auth.open_session()
+    cookie = {"Cookie": f"agent_hud_session={token}"}
+
+    requests.post(f"{base}/auth/logout", headers=cookie, timeout=5)
+
+    assert requests.get(f"{base}/tasks", headers=cookie, timeout=5).status_code == 401
+
+
+def test_the_session_cookie_cannot_be_read_by_a_script(locked_gateway):
+    base, _ = locked_gateway
+
+    response = requests.post(f"{base}/auth/logout", timeout=5)
+    cookie = response.headers.get("Set-Cookie", "")
+
+    assert "HttpOnly" in cookie
+    assert "SameSite=Strict" in cookie
+
+
+def test_adding_a_second_passkey_needs_a_recent_sign_in(locked_gateway):
+    """Somebody who picks up an unlocked phone must not be able to quietly
+    add their own key."""
+    base, server = locked_gateway
+    from stub_server.auth import Credential
+
+    server.auth.add(
+        Credential(
+            credential_id="existing", public_key="k", sign_count=0,
+            name="phone", created_at=0.0,
+        )
+    )
+
+    # No session at all.
+    assert _get(base, "/auth/register/options").status_code == 403
+
+    # A session that signed in long ago.
+    token = server.auth.open_session(now=0.0)
+    stale = requests.get(
+        f"{base}/auth/register/options",
+        headers={"Cookie": f"agent_hud_session={token}"},
+        timeout=5,
+    )
+    assert stale.status_code in (401, 403)
+
+
+def test_the_first_passkey_can_be_registered_without_one(locked_gateway):
+    # There has to be a way to set the first device up.
+    from stub_server.auth import library_available
+
+    base, _ = locked_gateway
+
+    response = _get(base, "/auth/register/options")
+
+    if library_available():
+        assert response.status_code == 200
+        assert response.json()["challenge"]
+    else:
+        assert response.status_code == 501
+
+
+def test_a_ceremony_that_does_not_check_out_says_only_no(locked_gateway):
+    """It refuses, and says nothing about why.
+
+    With the library absent it answers 501 and names the package to
+    install, which is a different thing from refusing a bad passkey and is
+    the honest answer to "I was asked to check something I cannot check".
+    """
+    from stub_server.auth import library_available
+
+    base, _ = locked_gateway
+
+    response = requests.post(
+        f"{base}/auth/login",
+        json={"credential": {"id": "made-up"}},
+        timeout=5,
+    )
+
+    expected = (400, 401) if library_available() else (501,)
+    assert response.status_code in expected
+    # Nothing about why, beyond that it did not.
+    assert "traceback" not in response.text.lower()

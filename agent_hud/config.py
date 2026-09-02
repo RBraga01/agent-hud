@@ -34,6 +34,8 @@ _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 _GATEWAYS_VAR = "AGENT_HUD_GATEWAYS"
 _ACTIVE_GATEWAY_VAR = "AGENT_HUD_ACTIVE_GATEWAY"
 _TRANSCRIBER_VAR = "AGENT_HUD_TRANSCRIBER"
+_REQUIRE_AUTH_VAR = "AGENT_HUD_REQUIRE_AUTH"
+_AUTH_PATH_VAR = "AGENT_HUD_AUTH_FILE"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -77,6 +79,12 @@ class Settings:
     # Which speech engine the development gateway should use. Empty means
     # none, and Audio then reports itself unavailable.
     transcriber: str = ""
+    # Whether the gateway asks for a passkey. Off by default, which
+    # is only defensible because it will not listen off loopback.
+    require_auth: bool = False
+    auth_path: Path = field(
+        default_factory=lambda: Path.home() / ".agent-hud" / "passkeys.json"
+    )
 
     @property
     def active_gateway(self) -> Gateway:
@@ -228,4 +236,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         skip_path_words=_read_skip_path_words(source),
         gateways=_read_gateways(source),
         transcriber=source.get(_TRANSCRIBER_VAR, "").strip(),
+        require_auth=source.get(_REQUIRE_AUTH_VAR, "").strip().lower()
+        in _TRUE_WORDS,
+        auth_path=Path(
+            source.get(_AUTH_PATH_VAR, "").strip()
+            or (Path.home() / ".agent-hud" / "passkeys.json")
+        ),
     )

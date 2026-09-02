@@ -72,11 +72,37 @@ It keeps nothing. No task text in browser storage, no offline copy, no analytics
 
 <br clear="all">
 
-### It is not authenticated, so it stays on your machine
+### Locking it, before you expose it
 
-The gateway binds to `127.0.0.1` and nothing else. There is no host argument and no way to ask it to listen elsewhere, because there is no authentication in front of it — it serves whatever your feeders report, and accepts answers, to anyone who can reach it.
+<img src="docs/control_signin.png" alt="The Control asking for a passkey" width="300" align="right">
 
-That is fine for something reachable only from the machine it runs on. It stops being fine the moment it is not. **Do not put this on a network or behind a tunnel until it has authentication.** The design for that is passkeys, so that no password and no biometric ever reaches the gateway — only a public key — but it is not built yet, and shipping a half-built lock would be worse than an honest open door.
+By default the gateway asks for nothing, and binds to `127.0.0.1` and nothing else. There is no host argument and no way to ask it to listen elsewhere, because with no lock in front of it that would be indefensible — it serves whatever your feeders report and accepts answers, to anyone who can reach it.
+
+Before putting it anywhere else, turn the lock on:
+
+```bash
+pip install ".[gateway]"                     # on the gateway
+AGENT_HUD_REQUIRE_AUTH=1 python -m stub_server.server
+```
+
+Then open Control, register the device you are holding, and that device becomes the key. After that nothing of yours is readable and nothing can be answered without it.
+
+**Passkeys, not passwords.** Your phone or laptop keeps a private key and proves it holds it. What arrives at the gateway is a public key and a signature. There is no password to choose, reuse, forget or phish, and nothing on the gateway's disk worth stealing.
+
+**No fingerprint or face ever reaches the gateway.** The sensor on your own device unlocks the key there. The gateway is not told which you used, is not told whether you used one at all, and has nowhere to put one if it were.
+
+Signing in lasts twelve hours, so reading through the day does not mean touching the sensor constantly. Registering another device or revoking one asks for the passkey again even inside a live session — somebody who picks up your unlocked phone should not be able to quietly unpair your glasses.
+
+<br clear="all">
+
+| Setting | What it does |
+|---|---|
+| `AGENT_HUD_REQUIRE_AUTH` | `1` to ask for a passkey. Off by default |
+| `AGENT_HUD_AUTH_FILE` | Where the registered public keys are kept. `~/.agent-hud/passkeys.json` |
+
+The signature checking is `py_webauthn`'s, not ours. Verifying one means parsing COSE keys and getting a dozen small things right, and a subtly wrong version of that is worse than no lock at all, because it still looks like one. What is written here is the policy around it: what is stored, how long a session lasts, and what has to be proved again.
+
+Turning the lock on does not make the gateway listen anywhere else. That is still a deliberate, separate thing to arrange, behind TLS, and the lock is what makes it defensible rather than what does it.
 
 ## Speaking a reply
 
@@ -209,6 +235,8 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_GATEWAYS` | — | More than one paired gateway, as `Home=url;Work=url`. Leave it unset if you only have one |
 | `AGENT_HUD_ACTIVE_GATEWAY` | first listed | Which paired gateway to start on |
 | `AGENT_HUD_TRANSCRIBER` | none | Speech engine for the gateway. `none` or `faster-whisper` |
+| `AGENT_HUD_REQUIRE_AUTH` | off | Ask for a passkey before the gateway says anything |
+| `AGENT_HUD_AUTH_FILE` | `~/.agent-hud/passkeys.json` | Where registered public keys are kept |
 
 They are read straight from the environment. Set them before running:
 
