@@ -1,4 +1,4 @@
-"""Fetching the current list from the gateway.
+"""Fetching the current task list from the gateway.
 
 This module never raises. Every failure comes back as an empty list with
 a reason attached, because an unhandled exception on the glasses means a
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import requests
 
-from .items import Item, parse_payload
+from .tasks import Task, parse_tasks
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -34,7 +34,7 @@ class FetchResult:
     """What came back, and whether the gateway could be reached at all.
 
     Attributes:
-        items: Parsed items. Empty when the fetch failed.
+        tasks: Parsed tasks. Empty when the fetch failed.
         ok: True when the gateway answered with something usable.
         reason: Why it failed, for logging. Empty when ok.
         dropped: Entries in an otherwise good response that did not match
@@ -44,14 +44,14 @@ class FetchResult:
             Above zero means what you are looking at is not shown in full.
     """
 
-    items: list[Item] = field(default_factory=list)
+    tasks: list[Task] = field(default_factory=list)
     ok: bool = True
     reason: str = ""
     dropped: int = 0
     truncated: int = 0
 
 
-def fetch_items(
+def fetch_tasks(
     url: str, timeout: float = DEFAULT_TIMEOUT_SECONDS
 ) -> FetchResult:
     """Ask the gateway for the current list.
@@ -59,7 +59,7 @@ def fetch_items(
     Three outcomes, deliberately kept apart:
 
     * Could not reach or could not read the gateway: ok is False.
-    * The gateway answered with something that is not a list of items:
+    * The gateway answered with something that is not a list of tasks:
       also ok is False. It is talking nonsense, and reporting that as
       "nothing needs you" would be the worst thing this could do.
     * The gateway answered properly: ok is True. Individual entries that
@@ -100,14 +100,14 @@ def fetch_items(
     finally:
         response.close()
 
-    parsed = parse_payload(payload)
+    parsed = parse_tasks(payload)
     if not parsed.valid:
         return FetchResult(
-            ok=False, reason="gateway did not send a list of items"
+            ok=False, reason="gateway did not send a list of tasks"
         )
 
     return FetchResult(
-        items=parsed.items,
+        tasks=parsed.tasks,
         ok=True,
         dropped=parsed.dropped,
         truncated=parsed.truncated,

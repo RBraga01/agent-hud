@@ -88,7 +88,7 @@ All settings are optional and read from the environment. Nothing is written into
 
 | Variable | Default | What it does |
 |---|---|---|
-| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/items` | Where to ask for the list |
+| `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the list |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
 | `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |

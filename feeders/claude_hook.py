@@ -34,7 +34,8 @@ _REQUIRED = ("session_id", "project_raw", "state", "at")
 _NEEDS_YOU = {"waiting": True, "error": True, "working": False, "background": False}
 
 
-def _detail(state: str, age: float) -> str:
+def _summary(state: str, age: float) -> str:
+    """The one line the task list shows."""
     if state == "error":
         return "failed"
     if state == "background":
@@ -42,6 +43,23 @@ def _detail(state: str, age: float) -> str:
     if state == "waiting":
         return f"your turn - {ago(age)}"
     return "working"
+
+
+def _detail(state: str, project: str, age: float) -> str:
+    """The fuller text the detail screen shows.
+
+    The hooks record when a session changed state and nothing about what
+    it was doing, so this says only what is actually known. Claiming more
+    would be inventing it.
+    """
+    when = ago(age)
+    if state == "error":
+        return f"The last run in {project} failed. Last change {when}."
+    if state == "background":
+        return f"{project} is still working in the background. Last change {when}."
+    if state == "waiting":
+        return f"{project} has finished and is waiting for you. Last change {when}."
+    return f"{project} is working. Last change {when}."
 
 
 def _read_record(
@@ -65,10 +83,17 @@ def _read_record(
     if age < 0 or age > STALE_SECONDS:
         return None
 
+    project = pretty_project(str(rec["project_raw"]), skip_words) or "unnamed"
     return {
         "id": f"claude-{str(rec['session_id'])[:8]}",
-        "title": pretty_project(str(rec["project_raw"]), skip_words) or "unnamed",
-        "detail": _detail(state, age),
+        # When this version of the session was written. It moves whenever
+        # the session changes state, which is exactly what a revision is
+        # for: proof that what is on screen is still what the tool says.
+        "revision": int(float(rec["at"])),
+        "source": "Claude",
+        "title": project,
+        "summary": _summary(state, age),
+        "detail": _detail(state, project, age),
         "needs_you": _NEEDS_YOU[state],
     }
 

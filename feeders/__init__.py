@@ -59,7 +59,7 @@ def file_items(path: Path | str) -> list[dict]:
     except ValueError as exc:
         raise FileFeederError(f"{p} is not valid JSON: {exc}") from exc
 
-    items = payload.get("items") if isinstance(payload, dict) else None
+    items = payload.get("tasks") if isinstance(payload, dict) else None
     return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
 
 

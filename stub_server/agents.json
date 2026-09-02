@@ -1,21 +1,25 @@
 {
-  "items": [
+  "tasks": [
     {
-      "id": "claude-deploy",
-      "title": "Claude Code",
-      "detail": "approve deploy?",
-      "needs_you": true
+      "id": "hand-deploy",
+      "revision": 1,
+      "source": "Claude",
+      "title": "Deploy production",
+      "summary": "Deployment needs approval",
+      "detail": "Edit this file and the glasses follow within a few seconds. Change the revision whenever you change anything else, so the display can tell a new version from the old one.",
+      "needs_you": true,
+      "actions": {
+        "primary": { "id": "approve", "label": "Approve" },
+        "secondary": { "id": "reject", "label": "Reject" }
+      }
     },
     {
-      "id": "pr-38",
-      "title": "PR 38",
-      "detail": "review requested",
-      "needs_you": true
-    },
-    {
-      "id": "codex-run",
-      "title": "Codex",
-      "detail": "running, 84 of 91 tests",
+      "id": "hand-tests",
+      "revision": 1,
+      "source": "Codex",
+      "title": "Test run",
+      "summary": "Running, 84 of 91",
+      "detail": "Nothing is waiting on you here. This row exists to show what a task that does not need you looks like.",
       "needs_you": false
     }
   ]

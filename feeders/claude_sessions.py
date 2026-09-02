@@ -95,9 +95,10 @@ def _read_session(
     path: Path, now: float, show_prompts: bool, skip_words: tuple[str, ...]
 ) -> dict | None:
     try:
-        age = now - path.stat().st_mtime
+        mtime = path.stat().st_mtime
     except OSError:
         return None
+    age = now - mtime
     if age > STALE_SECONDS:
         return None
 
@@ -108,20 +109,27 @@ def _read_session(
     waiting = role == "assistant" and age > SETTLE_SECONDS
 
     if show_prompts and prompt:
-        detail = (
+        summary = (
             prompt
             if len(prompt) <= MAX_DETAIL
             else prompt[: MAX_DETAIL - 1] + "..."
         )
     else:
-        detail = "your turn" if waiting else "working"
+        summary = "your turn" if waiting else "working"
     if waiting:
-        detail = f"{detail} - {_ago(age)}"
+        summary = f"{summary} - {_ago(age)}"
 
+    project = pretty_project(path.parent.name, skip_words)
+    state = "waiting for you" if waiting else "working"
     return {
         "id": f"claude-{path.stem[:8]}",
-        "title": pretty_project(path.parent.name, skip_words),
-        "detail": detail,
+        # The transcript's last-modified time. It moves whenever the
+        # session does, which is what makes it usable as a revision.
+        "revision": int(mtime),
+        "source": "Claude",
+        "title": project,
+        "summary": summary,
+        "detail": f"{project} is {state}. Last activity {_ago(age)}.",
         "needs_you": waiting,
     }
 

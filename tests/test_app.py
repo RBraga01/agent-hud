@@ -13,7 +13,7 @@ import pytest
 
 from agent_hud.client import FetchResult
 from agent_hud.config import Settings
-from agent_hud.items import Item
+from agent_hud.tasks import Task
 
 pytest.importorskip(
     "raven_framework", reason="Raven framework not installed — screen tests skipped"
@@ -25,12 +25,16 @@ from agent_hud.app import AgentHud
 
 # animations off: these tests check screen logic, not the Qt timeline.
 SETTINGS = Settings(
-    gateway_url="http://127.0.0.1:9/items", poll_seconds=3.0, animations=False
+    gateway_url="http://127.0.0.1:9/tasks", poll_seconds=3.0, animations=False
 )
 
-WAITING = Item(id="a", title="Claude Code", detail="approve deploy?", needs_you=True)
-ALSO_WAITING = Item(id="b", title="PR 38", detail="review requested", needs_you=True)
-BUSY = Item(id="c", title="Codex", detail="running", needs_you=False)
+WAITING = Task(id="a", revision=1, source="Claude Code", title="Deploy",
+               summary="approve deploy?", detail="Waiting on you.", needs_you=True)
+ALSO_WAITING = Task(id="b", revision=1, source="PR 38", title="Review",
+                    summary="review requested", detail="A review was asked for.",
+                    needs_you=True)
+BUSY = Task(id="c", revision=1, source="Codex", title="Tests",
+            summary="running", detail="Still going.", needs_you=False)
 
 
 def pump(qapp):
@@ -48,7 +52,7 @@ def pump(qapp):
 
 def make_hud(qapp, items=(), ok=True):
     """Build a HUD with the network and the clock replaced."""
-    result = FetchResult(items=list(items), ok=ok, reason="" if ok else "test")
+    result = FetchResult(tasks=list(items), ok=ok, reason="" if ok else "test")
     hud = AgentHud(
         settings=SETTINGS,
         fetch=lambda url, timeout: result,
@@ -156,7 +160,7 @@ def test_the_count_updates_when_new_data_arrives(qapp):
     hud = make_hud(qapp, items=[WAITING])
     assert hud.count_text == "1"
 
-    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))
 
     assert hud.count_text == "2"
 
@@ -165,7 +169,7 @@ def test_the_panel_closes_if_its_items_disappear(qapp):
     hud = make_hud(qapp, items=[WAITING])
     hud.open_panel()
 
-    hud.apply(FetchResult(items=[BUSY], ok=True))
+    hud.apply(FetchResult(tasks=[BUSY], ok=True))
 
     assert hud.is_panel_open is False
 
@@ -183,7 +187,7 @@ def test_survives_many_refreshes_with_the_event_loop_running(qapp):
 
     for step in range(6):
         shown = [WAITING, ALSO_WAITING] if step % 2 else [WAITING]
-        hud.apply(FetchResult(items=shown, ok=True))
+        hud.apply(FetchResult(tasks=shown, ok=True))
         pump(qapp)
 
     assert hud.count_text in {"1", "2"}
@@ -205,7 +209,7 @@ def test_switching_between_waiting_and_idle_repeatedly(qapp):
     hud = make_hud(qapp, items=[WAITING])
 
     for step in range(6):
-        hud.apply(FetchResult(items=[] if step % 2 else [WAITING], ok=True))
+        hud.apply(FetchResult(tasks=[] if step % 2 else [WAITING], ok=True))
         pump(qapp)
 
     assert hud.is_idle is True
@@ -217,7 +221,7 @@ def test_switching_between_waiting_and_idle_repeatedly(qapp):
 def test_a_failed_fetch_keeps_the_last_known_list(qapp):
     hud = make_hud(qapp, items=[WAITING, ALSO_WAITING])
 
-    hud.apply(FetchResult(items=[], ok=False, reason="gateway unreachable"))
+    hud.apply(FetchResult(tasks=[], ok=False, reason="gateway unreachable"))
 
     assert hud.count_text == "2"
     assert hud.is_online is False
@@ -227,16 +231,16 @@ def test_a_failed_fetch_does_not_blank_the_display(qapp):
     # A blank screen and a broken one must never look the same.
     hud = make_hud(qapp, items=[WAITING])
 
-    hud.apply(FetchResult(items=[], ok=False, reason="down"))
+    hud.apply(FetchResult(tasks=[], ok=False, reason="down"))
 
     assert hud.is_idle is False
 
 
 def test_coming_back_online_clears_the_marker(qapp):
     hud = make_hud(qapp, items=[WAITING])
-    hud.apply(FetchResult(items=[], ok=False, reason="down"))
+    hud.apply(FetchResult(tasks=[], ok=False, reason="down"))
 
-    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))
 
     assert hud.is_online is True
     assert hud.count_text == "2"
@@ -249,7 +253,8 @@ def test_reports_nothing_left_over_when_everything_fits(qapp):
 
 
 def test_counts_what_did_not_fit_in_the_panel(qapp):
-    extra = Item(id="d", title="Build", detail="failed on main", needs_you=True)
+    extra = Task(id="d", revision=1, source="Build", title="Build",
+                 summary="failed on main", detail="Failed.", needs_you=True)
     hud = make_hud(qapp, items=[WAITING, ALSO_WAITING, extra])
 
     hud.open_panel()
@@ -259,7 +264,8 @@ def test_counts_what_did_not_fit_in_the_panel(qapp):
 
 
 def test_the_count_still_reports_everything_even_when_the_panel_cannot(qapp):
-    extra = Item(id="d", title="Build", detail="failed on main", needs_you=True)
+    extra = Task(id="d", revision=1, source="Build", title="Build",
+                 summary="failed on main", detail="Failed.", needs_you=True)
     hud = make_hud(qapp, items=[WAITING, ALSO_WAITING, extra])
 
     assert hud.count_text == "3"
@@ -305,7 +311,7 @@ def test_a_response_with_discarded_entries_is_not_complete(qapp):
     # nothing about that would let a real alert vanish silently.
     hud = make_hud(qapp, items=[WAITING])
 
-    hud.apply(FetchResult(items=[WAITING], ok=True, dropped=2))
+    hud.apply(FetchResult(tasks=[WAITING], ok=True, dropped=2))
 
     assert hud.is_online is True
     assert hud.is_complete is False
@@ -314,9 +320,9 @@ def test_a_response_with_discarded_entries_is_not_complete(qapp):
 
 def test_recovering_from_discarded_entries_clears_the_warning(qapp):
     hud = make_hud(qapp, items=[WAITING])
-    hud.apply(FetchResult(items=[WAITING], ok=True, dropped=1))
+    hud.apply(FetchResult(tasks=[WAITING], ok=True, dropped=1))
 
-    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))
 
     assert hud.is_complete is True
 
@@ -326,7 +332,7 @@ def test_a_response_with_truncated_text_is_not_complete(qapp):
     # That is still a picture with a hole in it.
     hud = make_hud(qapp, items=[WAITING])
 
-    hud.apply(FetchResult(items=[WAITING], ok=True, truncated=1))
+    hud.apply(FetchResult(tasks=[WAITING], ok=True, truncated=1))
 
     assert hud.is_online is True
     assert hud.is_complete is False
@@ -335,7 +341,7 @@ def test_a_response_with_truncated_text_is_not_complete(qapp):
 def test_an_empty_list_from_a_healthy_gateway_really_means_idle(qapp):
     hud = make_hud(qapp, items=[WAITING])
 
-    hud.apply(FetchResult(items=[], ok=True))
+    hud.apply(FetchResult(tasks=[], ok=True))
 
     assert hud.is_idle is True
     assert hud.is_complete is True
@@ -359,7 +365,7 @@ def test_a_slow_fetch_does_not_pile_up(qapp):
     def slow_fetch(url, timeout):
         started.append(1)
         release.wait(3)
-        return FetchResult(items=[WAITING], ok=True)
+        return FetchResult(tasks=[WAITING], ok=True)
 
     hud = AgentHud(
         settings=SETTINGS, fetch=slow_fetch, gaze=lambda: None,
@@ -395,7 +401,7 @@ def test_the_guard_clears_so_later_polls_still_happen(qapp):
 
     def fetch(url, timeout):
         calls.append(1)
-        return FetchResult(items=[WAITING], ok=True)
+        return FetchResult(tasks=[WAITING], ok=True)
 
     hud = AgentHud(
         settings=SETTINGS, fetch=fetch, gaze=lambda: None,
@@ -427,7 +433,7 @@ def test_construction_does_not_block_on_a_slow_first_fetch(qapp):
     def slow_fetch(url, timeout):
         started.append(1)
         release.wait(2)
-        return FetchResult(items=[WAITING, ALSO_WAITING], ok=True)
+        return FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True)
 
     try:
         start = time.monotonic()
@@ -457,12 +463,12 @@ def test_construction_does_not_block_on_a_slow_first_fetch(qapp):
 # --- animated transitions -------------------------------------------------
 
 ANIM = Settings(
-    gateway_url="http://127.0.0.1:9/items", poll_seconds=3.0, animations=True
+    gateway_url="http://127.0.0.1:9/tasks", poll_seconds=3.0, animations=True
 )
 
 
 def make_animated_hud(qapp, items=()):
-    result = FetchResult(items=list(items), ok=True)
+    result = FetchResult(tasks=list(items), ok=True)
     hud = AgentHud(
         settings=ANIM,
         fetch=lambda url, timeout: result,
@@ -489,7 +495,7 @@ def test_going_from_idle_to_count_runs_a_transition(qapp):
     assert hud.is_idle
     assert hud._transitioning is False
 
-    hud.apply(FetchResult(items=[WAITING], ok=True))  # -> count, animates
+    hud.apply(FetchResult(tasks=[WAITING], ok=True))  # -> count, animates
     assert hud._transitioning is True
 
     drain(qapp, hud)
@@ -502,7 +508,7 @@ def test_opening_the_panel_runs_a_transition_and_settles(qapp):
     hud.refresh_now()
     pump(qapp)
     # A second data render, so the "first render instant" rule is spent.
-    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))
     pump(qapp)
 
     hud.open_panel()
@@ -520,10 +526,10 @@ def test_a_data_change_of_the_same_kind_does_not_animate(qapp):
     hud = make_animated_hud(qapp, items=[WAITING])
     hud.refresh_now()
     pump(qapp)
-    hud.apply(FetchResult(items=[WAITING], ok=True))  # spend the first-render rule
+    hud.apply(FetchResult(tasks=[WAITING], ok=True))  # spend the first-render rule
     pump(qapp)
 
-    hud.apply(FetchResult(items=[WAITING, ALSO_WAITING], ok=True))  # still count
+    hud.apply(FetchResult(tasks=[WAITING, ALSO_WAITING], ok=True))  # still count
 
     assert hud._transitioning is False
     assert hud.count_text == "2"

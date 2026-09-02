@@ -111,12 +111,30 @@ def _state_and_cwd(rollout: Path) -> tuple[str, str]:
     return state, cwd
 
 
-def _detail(state: str, age: float) -> str:
+def _summary(state: str, age: float) -> str:
+    """The one line the task list shows."""
     if state == "error":
         return "failed"
     if state == "waiting":
         return f"your turn - {ago(age)}"
     return "working"
+
+
+def _detail(state: str, title: str, age: float) -> str:
+    """The fuller text the detail screen shows.
+
+    The session log records that a turn ended, not what it was about, so
+    this says only what is actually known.
+    """
+    when = ago(age)
+    if state == "error":
+        return f"The last turn in {title} failed. Last activity {when}."
+    if state == "waiting":
+        return (
+            f"{title} has finished its turn and is waiting for you. "
+            f"Last activity {when}."
+        )
+    return f"{title} is working. Last activity {when}."
 
 
 def collect(
@@ -161,8 +179,14 @@ def collect(
         items.append(
             {
                 "id": f"codex-{str(entry['id'])[:8]}",
+                # When this version of the session was last updated. It
+                # moves whenever the session does, which is what makes it
+                # usable as a revision.
+                "revision": int(updated),
+                "source": "Codex",
                 "title": title,
-                "detail": _detail(state, age),
+                "summary": _summary(state, age),
+                "detail": _detail(state, title, age),
                 "needs_you": state in ("waiting", "error"),
             }
         )

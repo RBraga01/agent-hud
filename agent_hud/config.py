@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_GATEWAY_URL = "http://127.0.0.1:8765/items"
+DEFAULT_GATEWAY_URL = "http://127.0.0.1:8765/tasks"
 DEFAULT_POLL_SECONDS = 3.0
 
 _GATEWAY_URL_VAR = "AGENT_HUD_GATEWAY_URL"

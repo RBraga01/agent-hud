@@ -19,31 +19,31 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ITEMS_PATH = "/items"
+TASKS_PATH = "/tasks"
 LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
 
 
-class _ItemsHandler(BaseHTTPRequestHandler):
-    """Serves the items file. The data path is set on the server object."""
+class _TasksHandler(BaseHTTPRequestHandler):
+    """Serves the current task list. The provider is set on the server object."""
 
     # Set by create_server.
     data_path: Path
 
     def do_GET(self) -> None:
-        if self.path.split("?")[0] != ITEMS_PATH:
+        if self.path.split("?")[0] != TASKS_PATH:
             self._respond(404, {"error": "not found"})
             return
 
         try:
-            items = self.server.provider()
+            tasks = self.server.provider()
         except Exception as exc:  # a broken feeder must not take the gateway down
             self._respond(500, {"error": f"feeder failed: {exc}"})
             return
 
-        self._respond(200, {"items": items})
+        self._respond(200, {"tasks": tasks})
 
     def _respond(self, status: int, payload: object) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -57,7 +57,7 @@ class _ItemsHandler(BaseHTTPRequestHandler):
         """Quieter than the default, which prints a line per request."""
 
 
-class _ItemsServer(ThreadingHTTPServer):
+class _TasksServer(ThreadingHTTPServer):
     """A server that knows where to get its items."""
 
     daemon_threads = True
@@ -66,19 +66,19 @@ class _ItemsServer(ThreadingHTTPServer):
         self, address: tuple[str, int], provider: Callable[[], list]
     ) -> None:
         self.provider = provider
-        super().__init__(address, _ItemsHandler)
+        super().__init__(address, _TasksHandler)
 
 
 def create_server(
     provider: Callable[[], list], port: int = DEFAULT_PORT
-) -> _ItemsServer:
+) -> _TasksServer:
     """Build a server bound to loopback.
 
     Args:
         provider: Called on every request; returns the current list.
         port: Pass 0 to be given a free one.
     """
-    return _ItemsServer((LOOPBACK_HOST, port), provider)
+    return _TasksServer((LOOPBACK_HOST, port), provider)
 
 
 def main() -> None:
@@ -92,7 +92,7 @@ def main() -> None:
         lambda: collect(settings, file_path=DEFAULT_DATA_PATH), port=port
     )
     host, bound_port = server.server_address[:2]
-    print(f"Stub gateway on http://{host}:{bound_port}{ITEMS_PATH}")
+    print(f"Stub gateway on http://{host}:{bound_port}{TASKS_PATH}")
     print(f"Feeders: {', '.join(settings.feeders)}")
     if "file" in settings.feeders:
         print(f"Editing {DEFAULT_DATA_PATH} changes what the glasses show.")

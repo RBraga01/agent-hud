@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from agent_hud.items import parse_items
+from agent_hud.tasks import parse_tasks
 from feeders import claude_sessions, simulated
 
 NOW = 1_000_000.0
@@ -22,8 +22,8 @@ NOW = 1_000_000.0
 # --- simulated --------------------------------------------------------
 
 
-def test_simulated_items_match_the_contract():
-    items = parse_items({"items": simulated.collect()})
+def test_simulated_tasks_match_the_contract():
+    items = parse_tasks({"tasks": simulated.collect()}).tasks
 
     assert len(items) == len(simulated.collect())
 
@@ -121,7 +121,7 @@ def test_your_prompt_text_is_not_shown_by_default(tmp_path):
     items = claude_sessions.collect(tmp_path, now=NOW)
 
     assert "something private" not in json.dumps(items)
-    assert "your turn" in items[0]["detail"]
+    assert "your turn" in items[0]["summary"]
 
 
 def test_your_prompt_text_appears_when_you_ask_for_it(tmp_path):
@@ -132,7 +132,7 @@ def test_your_prompt_text_appears_when_you_ask_for_it(tmp_path):
 
     items = claude_sessions.collect(tmp_path, now=NOW, show_prompts=True)
 
-    assert "fix the parser" in items[0]["detail"]
+    assert "fix the parser" in items[0]["summary"]
 
 
 def test_a_long_prompt_is_cut_to_fit_a_row(tmp_path):
@@ -141,7 +141,7 @@ def test_a_long_prompt_is_cut_to_fit_a_row(tmp_path):
                    {"type": "last-prompt", "lastPrompt": "x" * 200}],
                   age_seconds=600)
 
-    detail = claude_sessions.collect(tmp_path, now=NOW, show_prompts=True)[0]["detail"]
+    detail = claude_sessions.collect(tmp_path, now=NOW, show_prompts=True)[0]["summary"]
 
     assert len(detail) <= claude_sessions.MAX_DETAIL + 12
 
@@ -168,7 +168,7 @@ def test_every_item_matches_the_contract(tmp_path):
 
     raw = claude_sessions.collect(tmp_path, now=NOW)
 
-    assert len(parse_items({"items": raw})) == len(raw)
+    assert len(parse_tasks({"tasks": raw}).tasks) == len(raw)
 
 
 @pytest.mark.parametrize(
@@ -203,7 +203,7 @@ def test_reads_a_hand_edited_file(tmp_path):
     from feeders import file_items
 
     f = tmp_path / "agents.json"
-    f.write_text(json.dumps({"items": simulated.collect()[:2]}), encoding="utf-8")
+    f.write_text(json.dumps({"tasks": simulated.collect()[:2]}), encoding="utf-8")
 
     assert len(file_items(f)) == 2
 
@@ -220,7 +220,7 @@ def test_a_valid_file_with_no_items_is_calm(tmp_path):
     from feeders import file_items
 
     f = tmp_path / "agents.json"
-    f.write_text(json.dumps({"items": []}), encoding="utf-8")
+    f.write_text(json.dumps({"tasks": []}), encoding="utf-8")
 
     assert file_items(f) == []
 
@@ -307,7 +307,7 @@ def test_collect_produces_items_the_app_accepts(tmp_path):
     settings = load_settings(env={"AGENT_HUD_FEEDERS": "simulated"})
     raw = collect(settings)
 
-    assert len(parse_items({"items": raw})) == len(raw)
+    assert len(parse_tasks({"tasks": raw}).tasks) == len(raw)
 
 
 def test_the_file_feeder_is_skipped_when_no_path_is_given():

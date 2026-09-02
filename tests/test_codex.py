@@ -10,7 +10,7 @@ and never touch a real home directory.
 import json
 import time
 
-from agent_hud.items import parse_items
+from agent_hud.tasks import parse_tasks
 from feeders import codex
 
 NOW = 1_000_000.0
@@ -83,7 +83,7 @@ def test_a_finished_turn_needs_you(tmp_path):
     assert items[0]["needs_you"] is True
     assert items[0]["title"] == "Refactor parser"
     assert items[0]["id"] == "codex-aaa11111"
-    assert "your turn" in items[0]["detail"]
+    assert "your turn" in items[0]["summary"]
 
 
 def test_a_running_turn_does_not_need_you(tmp_path):
@@ -104,7 +104,7 @@ def test_a_failed_turn_needs_you_and_says_failed(tmp_path):
     item = codex.collect(root, now=NOW)[0]
 
     assert item["needs_you"] is True
-    assert item["detail"] == "failed"
+    assert item["summary"] == "failed"
 
 
 def test_the_last_terminal_event_wins(tmp_path):
@@ -209,7 +209,7 @@ def test_items_match_the_contract(tmp_path):
 
     raw = codex.collect(root, now=NOW)
 
-    assert len(parse_items({"items": raw})) == len(raw)
+    assert len(parse_tasks({"tasks": raw}).tasks) == len(raw)
 
 
 def test_uses_the_real_clock_when_none_is_given(tmp_path):

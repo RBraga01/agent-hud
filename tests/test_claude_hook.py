@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_hud.items import parse_items
+from agent_hud.tasks import parse_tasks
 from feeders import claude_hook
 
 NOW = 1_000_000.0
@@ -71,7 +71,7 @@ def test_a_session_with_background_work_does_not_need_you(tmp_path):
     item = claude_hook.collect(tmp_path, now=NOW)[0]
 
     assert item["needs_you"] is False
-    assert "background" in item["detail"]
+    assert "background" in item["summary"]
 
 
 def test_a_failed_session_needs_you(tmp_path):
@@ -80,13 +80,13 @@ def test_a_failed_session_needs_you(tmp_path):
     item = claude_hook.collect(tmp_path, now=NOW)[0]
 
     assert item["needs_you"] is True
-    assert item["detail"] == "failed"
+    assert item["summary"] == "failed"
 
 
 def test_the_waiting_detail_carries_an_age(tmp_path):
     write_state(tmp_path, "abc12345", "bookshop", "waiting", age_seconds=3600)
 
-    assert "1 h" in claude_hook.collect(tmp_path, now=NOW)[0]["detail"]
+    assert "1 h" in claude_hook.collect(tmp_path, now=NOW)[0]["summary"]
 
 
 def test_an_abandoned_session_drops_out(tmp_path):
@@ -170,7 +170,7 @@ def test_items_match_the_contract(tmp_path):
 
     raw = claude_hook.collect(tmp_path, now=NOW)
 
-    assert len(parse_items({"items": raw})) == len(raw)
+    assert len(parse_tasks({"tasks": raw}).tasks) == len(raw)
 
 
 def test_uses_the_real_clock_when_none_is_given(tmp_path):
@@ -368,7 +368,7 @@ def test_the_full_lifecycle_round_trips(tmp_path):
     run_hook("agent_hud_prompt.py", sid, env)
     run_hook("agent_hud_stop_failure.py", {**sid, "error": "boom"}, env)
     item = claude_hook.collect(state)[0]
-    assert item["needs_you"] is True and item["detail"] == "failed"
+    assert item["needs_you"] is True and item["summary"] == "failed"
 
     run_hook("agent_hud_session_end.py", sid, env)
     assert claude_hook.collect(state) == []

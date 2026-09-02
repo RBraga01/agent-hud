@@ -1,6 +1,6 @@
 """The screen.
 
-Deliberately thin. Every decision worth testing lives in items.py,
+Deliberately thin. Every decision worth testing lives in tasks.py,
 client.py and interaction.py, which need no framework at all. What is
 left here is placing widgets and moving values between them.
 
@@ -37,10 +37,10 @@ from raven_framework.components.icon import Icon
 from raven_framework.helpers.async_runner import AsyncRunner
 from raven_framework.helpers.themes import RAVEN_CORE as theme
 
-from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_items
+from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_tasks
 from .config import Settings, load_settings
 from .interaction import DEFAULT_GRACE_SECONDS, DetailPanel, Rect
-from .items import Item, needs_you_count
+from .tasks import Task, needs_you_count
 from .transitions import (
     APP_SIZE,
     CARD_MARGIN_BOTTOM,
@@ -163,11 +163,11 @@ class AgentHud(RavenApp):
         super().__init__(parent)
 
         self._settings = settings or load_settings()
-        self._fetch = fetch or fetch_items
+        self._fetch = fetch or fetch_tasks
         self._gaze = gaze or _default_gaze
         self._clock = clock or time.monotonic
 
-        self._items: list[Item] = []
+        self._tasks: list[Task] = []
         self._online = True
         self._dropped = 0
         self._truncated = 0
@@ -239,13 +239,13 @@ class AgentHud(RavenApp):
     @property
     def count_text(self) -> str:
         """The number shown, as text. Empty when nothing is waiting."""
-        waiting = needs_you_count(self._items)
+        waiting = needs_you_count(self._tasks)
         return "" if waiting == 0 else str(waiting)
 
     @property
     def is_idle(self) -> bool:
         """True when nothing is waiting on you."""
-        return needs_you_count(self._items) == 0
+        return needs_you_count(self._tasks) == 0
 
     @property
     def is_online(self) -> bool:
@@ -274,12 +274,15 @@ class AgentHud(RavenApp):
 
     @property
     def panel_lines(self) -> list[tuple[str, str]]:
-        """Title and detail for each item the panel is showing."""
-        return [(item.title, item.detail) for item in self._waiting()[:MAX_PANEL_ITEMS]]
+        """Source and summary for each task the panel is showing."""
+        return [
+            (task.source, task.summary)
+            for task in self._waiting()[:MAX_PANEL_ITEMS]
+        ]
 
     @property
     def overflow_count(self) -> int:
-        """How many waiting items the panel had no room for."""
+        """How many waiting tasks the panel had no room for."""
         return max(0, len(self._waiting()) - MAX_PANEL_ITEMS)
 
     def panel_region(self) -> Rect:
@@ -300,8 +303,8 @@ class AgentHud(RavenApp):
 
     # -- behaviour ------------------------------------------------------
 
-    def _waiting(self) -> list[Item]:
-        return [item for item in self._items if item.needs_you]
+    def _waiting(self) -> list[Task]:
+        return [task for task in self._tasks if task.needs_you]
 
     def open_panel(self) -> None:
         """Show the detail. Does nothing when there is nothing to show."""
@@ -339,7 +342,7 @@ class AgentHud(RavenApp):
         self._dropped = result.dropped if result.ok else 0
         self._truncated = result.truncated if result.ok else 0
         if result.ok:
-            self._items = result.items
+            self._tasks = result.tasks
 
         if self._panel.is_open and self.is_idle:
             self._panel.close()
@@ -560,8 +563,8 @@ class AgentHud(RavenApp):
                 width=ROW_WIDTH,
             )
         )
-        for item in self._waiting()[:MAX_PANEL_ITEMS]:
-            frame.add(_row(item))
+        for task in self._waiting()[:MAX_PANEL_ITEMS]:
+            frame.add(_row(task))
 
         if self.overflow_count > 0:
             frame.add(
@@ -685,8 +688,8 @@ def _dot(size: int, color: str) -> Icon:
     )
 
 
-def _row(item: Item) -> Button:
-    """One item as a Button, which is what the examples use for list rows.
+def _row(task: Task) -> Button:
+    """One task as a Button, which is what the examples use for list rows.
 
     A Button rather than a plain outlined container: it carries the theme's
     outline, corner radius and dwell fill, so the row behaves and reads like
@@ -707,16 +710,16 @@ def _row(item: Item) -> Button:
     )
     inner.add(
         TextBox(
-            item.title,
+            task.source,
             font_type="headline",
             font_weight=TITLE_WEIGHT,
             width=ROW_WIDTH - ROW_TEXT_INSET * 2,
         )
     )
-    if item.detail:
+    if task.summary:
         inner.add(
             TextBox(
-                item.detail,
+                task.summary,
                 font_type="body",
                 font_weight=BODY_WEIGHT,
                 width=ROW_WIDTH - ROW_TEXT_INSET * 2,

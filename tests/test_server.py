@@ -10,7 +10,7 @@ import threading
 import pytest
 import requests
 
-from stub_server.server import ITEMS_PATH, create_server
+from stub_server.server import TASKS_PATH, create_server
 
 SAMPLE = [
     {"id": "a", "title": "One", "detail": "first", "needs_you": True},
@@ -41,14 +41,14 @@ def fixed_server():
 
 
 def test_serves_what_the_provider_returns(fixed_server):
-    response = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5)
+    response = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5)
 
     assert response.status_code == 200
-    assert response.json() == {"items": SAMPLE}
+    assert response.json() == {"tasks": SAMPLE}
 
 
 def test_says_it_is_json(fixed_server):
-    response = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5)
+    response = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5)
 
     assert response.headers["Content-Type"].startswith("application/json")
 
@@ -70,13 +70,13 @@ def test_asks_again_on_every_request(fixed_server=None):
 
     base, stop = serve(provider)
     try:
-        first = requests.get(f"{base}{ITEMS_PATH}", timeout=5).json()
-        second = requests.get(f"{base}{ITEMS_PATH}", timeout=5).json()
+        first = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()
+        second = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()
     finally:
         stop()
 
-    assert first["items"][0]["detail"] == "1"
-    assert second["items"][0]["detail"] == "2"
+    assert first["tasks"][0]["detail"] == "1"
+    assert second["tasks"][0]["detail"] == "2"
 
 
 def test_a_broken_feeder_does_not_take_the_gateway_down():
@@ -85,9 +85,9 @@ def test_a_broken_feeder_does_not_take_the_gateway_down():
 
     base, stop = serve(provider)
     try:
-        response = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+        response = requests.get(f"{base}{TASKS_PATH}", timeout=5)
         # And it is still answering afterwards.
-        again = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+        again = requests.get(f"{base}{TASKS_PATH}", timeout=5)
     finally:
         stop()
 
@@ -98,12 +98,12 @@ def test_a_broken_feeder_does_not_take_the_gateway_down():
 def test_an_empty_list_is_a_normal_answer():
     base, stop = serve(list)
     try:
-        response = requests.get(f"{base}{ITEMS_PATH}", timeout=5)
+        response = requests.get(f"{base}{TASKS_PATH}", timeout=5)
     finally:
         stop()
 
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    assert response.json() == {"tasks": []}
 
 
 def test_unknown_paths_are_not_found(fixed_server):
@@ -123,6 +123,6 @@ def test_binds_only_to_the_loopback_address():
 
 
 def test_the_response_is_valid_json_the_client_can_parse(fixed_server):
-    raw = requests.get(f"{fixed_server}{ITEMS_PATH}", timeout=5).text
+    raw = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5).text
 
-    assert json.loads(raw)["items"][0]["title"] == "One"
+    assert json.loads(raw)["tasks"][0]["title"] == "One"
