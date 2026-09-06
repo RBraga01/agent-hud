@@ -77,9 +77,7 @@ def test_activate_opens_the_task_list_from_attention(tasks):
 
 
 def test_selecting_a_task_opens_its_detail(tasks):
-    nav = advance(
-        Nav(screen=Screen.TASK_LIST), Event.ACTIVATE, tasks, task_id="t2"
-    )
+    nav = advance(Nav(screen=Screen.TASK_LIST), Event.ACTIVATE, tasks, task_id="t2")
 
     assert nav.screen is Screen.TASK_DETAIL
     assert nav.task_id == "t2"
@@ -256,9 +254,7 @@ def test_a_refresh_does_not_move_someone_who_is_reading(tasks):
 def test_a_revision_change_while_confirming_drops_back_to_detail(tasks):
     # Never act on a stale representation. The wearer is sent back to read
     # the task again rather than confirming something that has moved on.
-    nav = Nav(
-        screen=Screen.CONFIRMATION, task_id="t1", action_id="approve", revision=4
-    )
+    nav = Nav(screen=Screen.CONFIRMATION, task_id="t1", action_id="approve", revision=4)
     moved = [Task(**{**WAITING.__dict__, "revision": 5}), ALSO_WAITING, BUSY]
 
     result = nav_for_tasks(nav, moved)
@@ -333,9 +329,7 @@ def test_a_long_detail_splits_into_pages_that_join_back_up():
     assert pages > 1
     joined = "".join(detail_page(WAITING, n) for n in range(pages))
     assert joined == WAITING.detail
-    assert all(
-        len(detail_page(WAITING, n)) <= DETAIL_PAGE_CHARS for n in range(pages)
-    )
+    assert all(len(detail_page(WAITING, n)) <= DETAIL_PAGE_CHARS for n in range(pages))
 
 
 def test_a_page_past_the_end_is_empty_rather_than_an_error():
@@ -525,7 +519,7 @@ def test_rest_stays_at_rest_while_the_same_work_waits(tasks):
 def test_new_work_still_reaches_the_wearer(tasks):
     """Setting aside is not a mute switch."""
     nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
-    arrived = tasks + [NO_ACTIONS]
+    arrived = [*tasks, NO_ACTIONS]
     assert nav_for_tasks(nav, arrived).screen is Screen.ATTENTION
 
 
@@ -538,7 +532,7 @@ def test_answering_one_and_receiving_another_counts_as_new(tasks):
 
 def test_attention_returning_forgets_what_was_set_aside(tasks):
     nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
-    back = nav_for_tasks(nav, tasks + [NO_ACTIONS])
+    back = nav_for_tasks(nav, [*tasks, NO_ACTIONS])
     assert back.set_aside == frozenset()
 
 
@@ -604,7 +598,9 @@ def test_the_resting_screen_can_be_opened_again(tasks):
 def test_resting_with_nothing_waiting_stays_put(tasks):
     """No work, no screen to open. A dot that leads nowhere must not
     pretend to lead somewhere."""
-    assert advance(Nav(screen=Screen.IDLE), Event.ACTIVATE, [BUSY]).screen is Screen.IDLE
+    assert (
+        advance(Nav(screen=Screen.IDLE), Event.ACTIVATE, [BUSY]).screen is Screen.IDLE
+    )
 
 
 # --- the list needs a way out too -------------------------------------

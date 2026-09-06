@@ -20,12 +20,12 @@ pytest.importorskip(
     "raven_framework", reason="Raven framework not installed — screen tests skipped"
 )
 
-from agent_hud.screens import parts  # noqa: E402
-from agent_hud.screens.action_menu import build_action_menu  # noqa: E402
-from agent_hud.screens.attention import build_attention  # noqa: E402
-from agent_hud.screens.confirmation import build_confirmation  # noqa: E402
-from agent_hud.screens.task_detail import build_task_detail  # noqa: E402
-from agent_hud.screens.task_list import build_task_list  # noqa: E402
+from agent_hud.screens import parts
+from agent_hud.screens.action_menu import build_action_menu
+from agent_hud.screens.attention import build_attention
+from agent_hud.screens.confirmation import build_confirmation
+from agent_hud.screens.task_detail import build_task_detail
+from agent_hud.screens.task_list import build_task_list
 
 TASK = Task(
     id="t1",
@@ -152,9 +152,7 @@ def test_one_control_can_be_held_back_while_the_rest_use_dwell(qapp):
     anything without a deliberate gesture."""
     parts.set_activation("dwell", 1200, {"confirm": "double_blink"})
 
-    confirmation = build_confirmation(
-        TASK, TASK.primary, on_ok=_noop, on_cancel=_noop
-    )
+    confirmation = build_confirmation(TASK, TASK.primary, on_ok=_noop, on_cancel=_noop)
     times = sorted(round(_stare_seconds(b), 1) for b in _buttons(confirmation))
     assert times[0] < 5, "Cancel should still follow the global dwell"
     assert times[-1] > 30, "Confirm was set apart and must not dwell"
@@ -177,9 +175,7 @@ def test_each_role_reaches_only_its_own_control(qapp):
     screens_for = {
         "open_list": lambda: build_attention(2, on_open=_noop, on_later=_noop),
         "set_aside": lambda: build_attention(2, on_open=_noop, on_later=_noop),
-        "open_task": lambda: build_task_list(
-            [TASK], on_select=_noop, on_later=_noop
-        ),
+        "open_task": lambda: build_task_list([TASK], on_select=_noop, on_later=_noop),
         "back": lambda: build_task_detail(TASK, page=0, on_back=_noop),
         "take_action": lambda: build_task_detail(
             TASK, page=0, on_back=_noop, on_take_action=_noop

@@ -78,7 +78,11 @@ def build_task_list(
         card.add(
             parts.button_row(
                 ROW_WIDTH,
-                [parts.secondary_button("Later", on_later, width=LATER_WIDTH, role="set_aside")],
+                [
+                    parts.secondary_button(
+                        "Later", on_later, width=LATER_WIDTH, role="set_aside"
+                    )
+                ],
             )
         )
 

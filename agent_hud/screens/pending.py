@@ -173,7 +173,7 @@ class PendingMarker(QWidget):
             self._pulse.stop()
             self._pulse = None
 
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt's name
+    def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
@@ -187,7 +187,7 @@ class PendingMarker(QWidget):
         painter.fillPath(disc.subtracted(self._glass), color)
         painter.end()
 
-    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt's name
+    def mouseReleaseEvent(self, event) -> None:
         if self._on_open is not None and self.rect().contains(event.pos()):
             self._on_open()
 

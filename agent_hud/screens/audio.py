@@ -73,9 +73,7 @@ def build_listening(
     return card
 
 
-def build_processing(
-    task: Task, *, on_cancel: Callable[[], None]
-) -> VerticalContainer:
+def build_processing(task: Task, *, on_cancel: Callable[[], None]) -> VerticalContainer:
     """Waiting for the gateway to turn the recording into words."""
     card = parts.card(CARD_WIDTH, spacing=10)
     card.add(parts.label("Working it out", width=INNER_WIDTH))
@@ -123,7 +121,11 @@ def build_review(
         card.add(
             parts.button_row(
                 INNER_WIDTH,
-                [parts.primary_button("Say it again", on_again, width=200, role="retry")],
+                [
+                    parts.primary_button(
+                        "Say it again", on_again, width=200, role="retry"
+                    )
+                ],
             )
         )
         return card
@@ -133,15 +135,15 @@ def build_review(
     card.add(parts.body(text, INNER_WIDTH))
     card.add(parts.rule(INNER_WIDTH))
     card.add(
-        parts.small(
-            f"Will be sent to {task.source}", width=INNER_WIDTH, align="left"
-        )
+        parts.small(f"Will be sent to {task.source}", width=INNER_WIDTH, align="left")
     )
     card.add(
         parts.button_row(
             INNER_WIDTH,
             [
-                parts.secondary_button("Say it again", on_again, width=190, role="retry"),
+                parts.secondary_button(
+                    "Say it again", on_again, width=190, role="retry"
+                ),
                 parts.primary_button("Send", on_send, width=150),
             ],
         )

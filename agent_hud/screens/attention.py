@@ -91,9 +91,7 @@ def build_attention(
     block_height = RING_SIZE + 10 + LABEL_HEIGHT
     top = (CARD_SIZE - block_height) // 2
 
-    inner = Container(
-        width=CARD_SIZE, height=CARD_SIZE, background_color=s.TRANSPARENT
-    )
+    inner = Container(width=CARD_SIZE, height=CARD_SIZE, background_color=s.TRANSPARENT)
     inner.add(ring, (CARD_SIZE - RING_SIZE) // 2, top)
     inner.add(caption, 0, top + RING_SIZE + 10)
 
@@ -118,7 +116,9 @@ def build_attention(
     if on_later is None:
         return card
 
-    later = parts.secondary_button("Later", on_later, width=LATER_WIDTH, role="set_aside")
+    later = parts.secondary_button(
+        "Later", on_later, width=LATER_WIDTH, role="set_aside"
+    )
 
     # Placed by coordinate, like the card's own contents: a stacking
     # container centres nothing, and this has to line up under the card.

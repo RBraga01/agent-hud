@@ -118,9 +118,13 @@ def build_result(
 
     buttons = [parts.secondary_button("Back", on_back, width=150, role="back")]
     if state is SendState.FAILED and on_retry is not None:
-        buttons.append(parts.primary_button("Try again", on_retry, width=180, role="retry"))
+        buttons.append(
+            parts.primary_button("Try again", on_retry, width=180, role="retry")
+        )
     if state is SendState.STALE and on_read_again is not None:
-        buttons.append(parts.primary_button("Read it", on_read_again, width=180, role="back"))
+        buttons.append(
+            parts.primary_button("Read it", on_read_again, width=180, role="back")
+        )
     card.add(parts.button_row(INNER_WIDTH, buttons))
 
     return card
