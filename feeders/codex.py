@@ -1,13 +1,22 @@
 """Turn Codex CLI sessions into items.
 
-Codex writes append-only session logs under ``<codex_dir>/sessions/`` and
-a one-line-per-session index at ``<codex_dir>/session_index.jsonl``. This
+Codex writes append-only session logs as ``rollout-<timestamp>-<id>.jsonl``
+under a date-nested tree, ``<codex_dir>/sessions/YYYY/MM/DD/``, and a
+one-line-per-session index at ``<codex_dir>/session_index.jsonl``. This
 feeder reads the index for a human title and last-activity time, then
 tails the matching session log to work out whose turn it is:
 
     last terminal event is task_complete  -> your turn
     last terminal event is task_started   -> Codex is working
     an error event is last                -> failed
+
+``<codex_dir>/archived_sessions/`` is a sibling of ``sessions/`` and is
+left alone: an archived session is one the user has already put away.
+
+Only sessions touched in the last three days are shown, matching the
+Claude feeders. A slash command stored as the session name
+(``<command-message>init</command-message>``) is treated as no title, and
+the project folder is used instead.
 
 Like the ``claude`` feeder this reads an undocumented on-disk format and
 may need updating if Codex changes it. A Codex-native hook, if one lands,
@@ -20,6 +29,7 @@ No message bodies are read — only event types.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -32,6 +42,21 @@ TAIL_LINES = 400
 
 _TERMINAL = {"task_complete", "task_started"}
 _ERROR = {"error", "stream_error", "turn_failed", "turn_aborted"}
+
+# Codex stores a slash-command invocation as the session name, wrapped in
+# a tag: "<command-message>init</command-message>",
+# "<command-name>/clear</command-name>". That names a command, not a piece
+# of work, so it is not a usable title.
+_COMMAND_WRAPPER = re.compile(r"^<command-[a-z]+>.*</command-[a-z]+>$", re.DOTALL)
+
+
+def _clean_title(raw: str) -> str:
+    """A human title from the index's ``thread_name``, or ``""`` when there
+    isn't one. ``collect`` falls back to the project folder on ``""``."""
+    text = raw.strip()
+    if not text or _COMMAND_WRAPPER.match(text):
+        return ""
+    return text
 
 
 def _iso_to_epoch(value: str) -> float | None:
@@ -172,7 +197,7 @@ def collect(
             continue
 
         state, cwd = _state_and_cwd(rollout)
-        title = str(entry.get("thread_name") or "").strip()
+        title = _clean_title(str(entry.get("thread_name") or ""))
         if not title:
             title = pretty_project(Path(cwd).name, skip_words) if cwd else "unnamed"
 

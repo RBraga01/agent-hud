@@ -136,6 +136,43 @@ def test_the_title_falls_back_to_the_project_when_the_thread_is_unnamed(tmp_path
     assert codex.collect(root, now=NOW)[0]["title"] == "my api"
 
 
+def test_a_slash_command_name_is_not_used_as_the_title(tmp_path):
+    # Codex stores '/init', '/clear' etc. as the thread name, tag-wrapped.
+    # Those name a command, not work: fall back to the project folder.
+    root = build_codex(
+        tmp_path,
+        [
+            (
+                "g1111111",
+                "<command-message>init</command-message>",
+                120,
+                ["task_complete"],
+                "e:/Projectos/comer-app",
+            ),
+            (
+                "g2222222",
+                "<command-name>/clear</command-name>",
+                120,
+                ["task_complete"],
+                "e:/Projectos/kid-os",
+            ),
+        ],
+    )
+
+    titles = {i["title"] for i in codex.collect(root, now=NOW)}
+    assert titles == {"comer app", "kid os"}
+
+
+def test_a_real_angle_bracket_title_is_kept(tmp_path):
+    # Only the command-* wrappers are dropped, not any '<...>' text.
+    root = build_codex(
+        tmp_path,
+        [("g3333333", "<why> does this crash", 120, ["task_complete"], "e:/p")],
+    )
+
+    assert codex.collect(root, now=NOW)[0]["title"] == "<why> does this crash"
+
+
 def test_things_waiting_on_you_come_first(tmp_path):
     root = build_codex(
         tmp_path,
