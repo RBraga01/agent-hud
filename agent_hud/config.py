@@ -41,7 +41,7 @@ _DEVICE_TOKEN_VAR = "AGENT_HUD_DEVICE_TOKEN"
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
 DEFAULT_FEEDERS = ("simulated",)
-KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "codex", "file")
+KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "codex", "github", "file")
 
 _TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 
