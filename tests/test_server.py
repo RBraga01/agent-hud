@@ -1146,3 +1146,18 @@ def test_a_control_can_be_put_back_under_the_main_setting(gateway):
     _put_settings(base, {"interaction": {"controls": {}}})
 
     assert _get(base, SETTINGS_PATH).json()["interaction"]["controls"] == {}
+
+
+def test_control_files_are_served_without_being_cached(gateway):
+    """A browser that cached an old build must not be stranded on it after
+    the gateway is restarted with new files. It is a localhost dev
+    gateway; revalidating every load costs nothing."""
+    base, _ = gateway
+
+    for name in ("", "control.js", "index.html"):
+        response = _get(base, f"/control/{name}")
+        assert response.status_code == 200
+        cache = response.headers.get("Cache-Control", "")
+        assert "no-cache" in cache or "no-store" in cache, (
+            f"/control/{name} was served as cacheable: {cache!r}"
+        )
