@@ -59,6 +59,7 @@ from .screens import (
 )
 from .screens import style as s
 from .screens.audio import build_listening, build_processing, build_review
+from .screens.pending import PendingMarker
 from .screens.unavailable import build_unavailable
 from .tasks import Task, find_task, needs_you_count
 from .transitions import (
@@ -360,6 +361,15 @@ class AgentHud(RavenApp):
         """From the count card into the list of what is waiting."""
         self._fire(Event.ACTIVATE)
 
+    def activate(self) -> None:
+        """Pick the resting marker back up, after setting work aside.
+
+        Named apart from open_list because it lands somewhere else: this
+        goes back to the count, not into the list. It does nothing at all
+        when there is no longer anything waiting.
+        """
+        self._fire(Event.ACTIVATE)
+
     def select_task(self, task_id: str) -> None:
         """Open one task from the list."""
         self._fire(Event.ACTIVATE, task_id=task_id)
@@ -428,6 +438,14 @@ class AgentHud(RavenApp):
     def back(self) -> None:
         """Step back up one screen."""
         self._fire(Event.BACK)
+
+    def set_aside(self) -> None:
+        """Leave everything waiting for later and go back to rest.
+
+        Not the same as stepping back: this leaves the whole subject
+        alone, from wherever the wearer happens to be looking at it.
+        """
+        self._fire(Event.SET_ASIDE)
 
     def scroll_up(self) -> None:
         self._fire(Event.SCROLL_UP)
@@ -584,13 +602,18 @@ class AgentHud(RavenApp):
         elif screen is Screen.ATTENTION:
             top = self._place(
                 build_attention(
-                    needs_you_count(self._tasks), on_open=self.open_list
+                    needs_you_count(self._tasks),
+                    on_open=self.open_list,
+                    on_later=self.set_aside,
                 )
             )
         elif screen is Screen.TASK_LIST:
             top = self._place(
                 build_task_list(
-                    self.waiting, page=self._nav.page, on_select=self.select_task
+                    self.waiting,
+                    page=self._nav.page,
+                    on_select=self.select_task,
+                    on_later=self.set_aside,
                 )
             )
         elif screen is Screen.TASK_DETAIL:
@@ -729,6 +752,22 @@ class AgentHud(RavenApp):
         return widget
 
     def _draw_idle_dot(self):
+        """The resting marker: a plain dot, or an hourglass when work was
+        set aside.
+
+        Both sit in the same place, so nothing jumps when the wearer defers
+        something. The hourglass is the larger of the two because it has a
+        shape to carry and because it is a target -- it is the way back in,
+        and gaze needs room.
+        """
+        if self._nav.set_aside:
+            marker = PendingMarker(
+                on_open=self.activate, animate=self._settings.animations
+            )
+            x, y = idle_dot_position(marker.width())
+            self.app.add(marker, x, y)
+            return marker
+
         dot = _dot(IDLE_DOT_SIZE, IDLE_COLOR)
         x, y = idle_dot_position()
         self.app.add(dot, x, y)

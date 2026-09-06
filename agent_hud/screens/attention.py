@@ -17,19 +17,37 @@ from raven_framework.components.container import Container
 from raven_framework.components.text_box import TextBox
 from raven_framework.components.vertical_container import VerticalContainer
 
+from . import parts
 from . import style as s
 
 CARD_SIZE = 190
 RING_SIZE = 108
 LABEL_HEIGHT = 22
 
+# Well clear of the card, so nobody defers something while reaching
+# for it. Gaze lands within a couple of degrees of where it means to.
+LATER_GAP = 26
+LATER_WIDTH = 132
+LATER_HEIGHT = s.BUTTON_HEIGHT
 
-def build_attention(count: int, *, on_open: Callable[[], None]) -> Button:
-    """The count card.
+
+def build_attention(
+    count: int,
+    *,
+    on_open: Callable[[], None],
+    on_later: Callable[[], None] | None = None,
+) -> Container:
+    """The count card, and a way to leave it alone for now.
 
     The whole card is the button. A small target would be unfair to aim
-    at with gaze, and there is nothing else on this screen to hit by
-    mistake.
+    at with gaze, and the only other thing on this screen sits well clear
+    of it.
+
+    "Later" matters more than it looks. Without it this screen was a room
+    with no door: the wearer could go in and answer things, but could not
+    decide to answer them in a minute, and every refresh put the screen
+    back. Someone wearing these while doing something else needs to be
+    able to say "not now" and be believed.
 
     The contents are placed by coordinate rather than stacked. A stacking
     container centres nothing, so getting a circle into the middle of a
@@ -88,10 +106,30 @@ def build_attention(count: int, *, on_open: Callable[[], None]) -> Button:
         outline_width=s.BORDER,
         outline_color=s.ACCENT,
         scale_by=0.0,
+        # Without this the card keeps the framework's default dwell and
+        # fires after 1.5 seconds of being looked at, ignoring what the
+        # wearer chose. It is built by hand rather than through parts,
+        # which is exactly how that went unnoticed.
+        **parts.activation("open_list"),
         **s.outline(),
     )
     card.on_clicked(on_open)
-    return card
+
+    if on_later is None:
+        return card
+
+    later = parts.secondary_button("Later", on_later, width=LATER_WIDTH, role="set_aside")
+
+    # Placed by coordinate, like the card's own contents: a stacking
+    # container centres nothing, and this has to line up under the card.
+    block = Container(
+        width=CARD_SIZE,
+        height=CARD_SIZE + LATER_GAP + LATER_HEIGHT,
+        background_color=s.TRANSPARENT,
+    )
+    block.add(card, 0, 0)
+    block.add(later, (CARD_SIZE - LATER_WIDTH) // 2, CARD_SIZE + LATER_GAP)
+    return block
 
 
 __all__ = ["CARD_SIZE", "build_attention"]

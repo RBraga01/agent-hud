@@ -57,6 +57,10 @@ class Event(str, Enum):
 
     ACTIVATE = "activate"
     BACK = "back"
+    # Deliberately not BACK. Stepping back goes up one screen; this
+    # leaves the whole subject alone until the wearer chooses to
+    # return, from wherever they happen to be looking at it.
+    SET_ASIDE = "set_aside"
     CANCEL = "cancel"
     TAKE_ACTION = "take_action"
     SELECT_PRIMARY = "select_primary"
@@ -81,6 +85,9 @@ class Nav:
             against a refresh so a confirmation cannot outlive its task.
         stale: True when a refresh pulled the wearer back because the task
             changed. The screen says so; the next move clears it.
+        set_aside: Ids the wearer chose to deal with later. Holds the
+            resting screen in place while exactly these are waiting, and
+            tells the resting screen it has something behind it.
     """
 
     screen: Screen = Screen.IDLE
@@ -89,6 +96,7 @@ class Nav:
     page: int = 0
     revision: int | None = None
     stale: bool = False
+    set_aside: frozenset[str] = frozenset()
 
 
 # How many polls in a row must fail before the display stops showing the
@@ -195,6 +203,35 @@ class AutoScroll:
         return False
 
 
+def waiting_ids(tasks: list[Task]) -> frozenset[str]:
+    """Which tasks are asking for the wearer, by id.
+
+    Ids rather than a count, because the count is not enough to tell new
+    work from old: answer one and receive another and the number never
+    moves, but something unseen has arrived.
+    """
+    return frozenset(task.id for task in tasks if task.needs_you)
+
+
+def _set_aside(nav: Nav, tasks: list[Task]) -> Nav:
+    """Leave everything that is waiting for later, and go back to rest.
+
+    Remembering exactly which tasks were waiting is what makes "later"
+    last: the resting screen holds while these are the work, and gives way
+    again the moment something arrives that the wearer has not already
+    declined to look at.
+    """
+    return replace(
+        nav,
+        screen=Screen.IDLE,
+        task_id=None,
+        action_id=None,
+        page=0,
+        stale=False,
+        set_aside=waiting_ids(tasks),
+    )
+
+
 def _open_task(nav: Nav, task: Task) -> Nav:
     return replace(
         nav,
@@ -244,8 +281,26 @@ def advance(
     screen = nav.screen
     task = find_task(tasks, nav.task_id)
 
-    if screen is Screen.ATTENTION and event is Event.ACTIVATE:
-        return replace(nav, screen=Screen.TASK_LIST, stale=False)
+    if screen is Screen.IDLE and event is Event.ACTIVATE:
+        # The way back in. Without it, setting work aside is a one-way
+        # door and nothing returns the wearer to it until something new
+        # happens to arrive. A resting screen with nothing behind it
+        # leads nowhere, and must not pretend otherwise.
+        if not waiting_ids(tasks):
+            return nav
+        return replace(nav, screen=Screen.ATTENTION, set_aside=frozenset())
+
+    if screen is Screen.ATTENTION:
+        if event is Event.ACTIVATE:
+            # Having looked, there is nothing left to be reminded of.
+            return replace(
+                nav, screen=Screen.TASK_LIST, stale=False, set_aside=frozenset()
+            )
+        if event in (Event.BACK, Event.SET_ASIDE):
+            # Rest is up from here, so stepping back and setting aside
+            # land in the same place. The wearer is not obliged to decide
+            # the moment work arrives.
+            return _set_aside(nav, tasks)
 
     if screen is Screen.TASK_LIST:
         if event is Event.ACTIVATE:
@@ -253,6 +308,11 @@ def advance(
             return nav if chosen is None else _open_task(nav, chosen)
         if event is Event.BACK:
             return replace(nav, screen=Screen.ATTENTION, task_id=None, stale=False)
+        if event is Event.SET_ASIDE:
+            # The screen people actually get stuck on. Stepping back to a
+            # count they have already read is not what someone wants when
+            # they have decided to deal with all of this later.
+            return _set_aside(nav, tasks)
 
     if screen is Screen.TASK_DETAIL:
         if event is Event.BACK:
@@ -331,8 +391,18 @@ def nav_for_tasks(nav: Nav, tasks: list[Task]) -> Nav:
     """
     waiting = needs_you_count(tasks)
 
+    # Work that has been answered is no longer work anyone set aside.
+    # Without this the set only ever grows and stale ids linger for ever.
+    set_aside = nav.set_aside & waiting_ids(tasks)
+
     if nav.screen is Screen.IDLE:
-        return replace(nav, screen=Screen.ATTENTION) if waiting else nav
+        unseen = waiting_ids(tasks) - set_aside
+        if unseen:
+            # Something the wearer has not already declined to look at.
+            # Setting work aside defers what was there; it is not a mute
+            # switch on everything that comes afterwards.
+            return replace(nav, screen=Screen.ATTENTION, set_aside=frozenset())
+        return replace(nav, set_aside=set_aside)
 
     # Screens the gateway is not allowed to take away, whatever the list
     # says -- and this has to come before the "nothing is waiting" check

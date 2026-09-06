@@ -493,3 +493,164 @@ def test_resetting_forgets_where_the_gaze_was():
     scroll.reset()
 
     assert scroll.should_advance(inside_zone=True, now=5.0) is False
+
+
+# --- setting work aside -----------------------------------------------
+#
+# The wearer is not obliged to deal with things the moment they arrive.
+# They can go back to rest, and it has to stay at rest -- otherwise the
+# next poll drags them straight back to the attention screen and "later"
+# means nothing.
+
+
+def test_back_from_attention_returns_to_rest(tasks):
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    assert nav.screen is Screen.IDLE
+
+
+def test_setting_aside_remembers_what_was_waiting(tasks):
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    # Only the tasks that actually wanted something, not the busy one.
+    assert nav.set_aside == frozenset({"t1", "t2"})
+
+
+def test_rest_stays_at_rest_while_the_same_work_waits(tasks):
+    """The bug this fixes: 'later' that lasts until the next poll."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    for _ in range(5):
+        nav = nav_for_tasks(nav, tasks)
+        assert nav.screen is Screen.IDLE, "a poll dragged the wearer back"
+
+
+def test_new_work_still_reaches_the_wearer(tasks):
+    """Setting aside is not a mute switch."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    arrived = tasks + [NO_ACTIONS]
+    assert nav_for_tasks(nav, arrived).screen is Screen.ATTENTION
+
+
+def test_answering_one_and_receiving_another_counts_as_new(tasks):
+    """Ids, not a count. Both stay at two, but t4 is something unseen."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    swapped = [ALSO_WAITING, BUSY, NO_ACTIONS]
+    assert nav_for_tasks(nav, swapped).screen is Screen.ATTENTION
+
+
+def test_attention_returning_forgets_what_was_set_aside(tasks):
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    back = nav_for_tasks(nav, tasks + [NO_ACTIONS])
+    assert back.set_aside == frozenset()
+
+
+def test_answered_work_stops_being_set_aside(tasks):
+    """Otherwise the set only ever grows, and stale ids linger for ever."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    nav = nav_for_tasks(nav, [WAITING, BUSY])
+    assert nav.set_aside == frozenset({"t1"})
+
+
+def test_everything_resolving_clears_it_completely(tasks):
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    nav = nav_for_tasks(nav, [BUSY])
+    assert nav.screen is Screen.IDLE
+    assert nav.set_aside == frozenset()
+
+
+def test_opening_the_list_clears_what_was_set_aside(tasks):
+    """Having looked, there is nothing left to be reminded of."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    nav = replace_screen(nav, Screen.ATTENTION)
+    assert advance(nav, Event.ACTIVATE, tasks).set_aside == frozenset()
+
+
+def test_work_set_aside_is_still_reported_as_waiting(tasks):
+    """The resting dot has to know there is something behind it."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    nav = nav_for_tasks(nav, tasks)
+    assert nav.screen is Screen.IDLE
+    assert nav.set_aside, "nothing left to tell the wearer about"
+
+
+def test_the_gateway_cannot_set_work_aside_by_itself(tasks):
+    """Only the wearer decides to defer something."""
+    nav = nav_for_tasks(Nav(screen=Screen.IDLE), tasks)
+    assert nav.screen is Screen.ATTENTION
+    assert nav.set_aside == frozenset()
+
+
+def test_unavailable_does_not_inherit_a_stale_set_aside(tasks):
+    from agent_hud.navigation import nav_for_connection
+
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    gone = nav_for_connection(nav, failures=99)
+    assert gone.screen is Screen.UNAVAILABLE
+
+
+def replace_screen(nav, screen):
+    from dataclasses import replace
+
+    return replace(nav, screen=screen)
+
+
+def test_the_resting_screen_can_be_opened_again(tasks):
+    """Otherwise setting work aside is a one-way door: nothing brings the
+    wearer back until something new happens to arrive."""
+    nav = advance(Nav(screen=Screen.ATTENTION), Event.BACK, tasks)
+    reopened = advance(nav, Event.ACTIVATE, tasks)
+    assert reopened.screen is Screen.ATTENTION
+    assert reopened.set_aside == frozenset()
+
+
+def test_resting_with_nothing_waiting_stays_put(tasks):
+    """No work, no screen to open. A dot that leads nowhere must not
+    pretend to lead somewhere."""
+    assert advance(Nav(screen=Screen.IDLE), Event.ACTIVATE, [BUSY]).screen is Screen.IDLE
+
+
+# --- the list needs a way out too -------------------------------------
+#
+# The count card was not the screen people get stuck on. The list is: it
+# is titled "Needs you", it is where the wearer actually spends time, and
+# until now the only exit was to open one of the things on it.
+
+
+def test_the_list_can_be_set_aside_directly(tasks):
+    nav = advance(Nav(screen=Screen.TASK_LIST), Event.SET_ASIDE, tasks)
+    assert nav.screen is Screen.IDLE
+    assert nav.set_aside == frozenset({"t1", "t2"})
+
+
+def test_setting_the_list_aside_also_holds_against_polls(tasks):
+    nav = advance(Nav(screen=Screen.TASK_LIST), Event.SET_ASIDE, tasks)
+    for _ in range(5):
+        nav = nav_for_tasks(nav, tasks)
+    assert nav.screen is Screen.IDLE
+
+
+def test_the_count_card_can_still_be_set_aside(tasks):
+    """Both screens offer it, and they must agree on what it does."""
+    from_card = advance(Nav(screen=Screen.ATTENTION), Event.SET_ASIDE, tasks)
+    from_list = advance(Nav(screen=Screen.TASK_LIST), Event.SET_ASIDE, tasks)
+    assert from_card.screen is from_list.screen is Screen.IDLE
+    assert from_card.set_aside == from_list.set_aside
+
+
+def test_back_from_the_list_still_goes_up_one_screen(tasks):
+    """Setting aside is not the same as stepping back, and adding one
+    must not quietly replace the other."""
+    nav = advance(Nav(screen=Screen.TASK_LIST), Event.BACK, tasks)
+    assert nav.screen is Screen.ATTENTION
+
+
+def test_setting_aside_deeper_in_does_nothing(tasks):
+    """It belongs to the screens that survey work, not to the ones in the
+    middle of answering a particular thing."""
+    for screen in (
+        Screen.TASK_DETAIL,
+        Screen.ACTION_MENU,
+        Screen.CONFIRMATION,
+        Screen.LISTENING,
+        Screen.REVIEW,
+    ):
+        nav = Nav(screen=screen, task_id="t1")
+        assert advance(nav, Event.SET_ASIDE, tasks).screen is screen

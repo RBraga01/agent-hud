@@ -87,9 +87,15 @@ def centre_of(width: int, height: int) -> tuple[int, int]:
     return (APP_SIZE - width) // 2, (APP_SIZE - height) // 2
 
 
-def idle_dot_position() -> tuple[int, int]:
-    """The resting dot, out in the right periphery where it will not nag."""
-    return APP_SIZE - IDLE_DOT_SIZE - EDGE_MARGIN, APP_SIZE // 2
+def idle_dot_position(size: int = IDLE_DOT_SIZE) -> tuple[int, int]:
+    """The resting marker, out in the right periphery where it will not nag.
+
+    Takes a size because the marker is not always the same one: work set
+    aside is shown by a larger hourglass in the same place. Anchoring the
+    right edge rather than the left keeps both against the same margin, so
+    nothing shifts sideways when one replaces the other.
+    """
+    return APP_SIZE - size - EDGE_MARGIN, (APP_SIZE - size) // 2
 
 
 def transition_for(old_screen, new_screen, *, animate: bool = True) -> str:
