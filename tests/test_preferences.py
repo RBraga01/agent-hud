@@ -14,6 +14,7 @@ import pytest
 
 from agent_hud.preferences import (
     ACTIVATION_MODES,
+    CONTROL_ROLES,
     DEFAULTS,
     MAX_DWELL_MS,
     MIN_DWELL_MS,
@@ -214,3 +215,67 @@ def test_extra_fields_a_future_gateway_might_add_are_ignored():
 
     assert accepted is True
     assert prefs.revision == 12
+
+
+
+# --- per-control activation -------------------------------------------
+#
+# One global setting was too blunt. Opening a task and confirming one are
+# not the same risk, and a wearer who wants to browse with their eyes may
+# still want a deliberate gesture before anything is sent.
+
+
+def test_controls_default_to_empty_and_fall_back_to_the_global_setting():
+    assert DEFAULTS.controls == {}
+    assert DEFAULTS.mode_for("confirm") == DEFAULTS.activation
+
+
+def test_a_control_can_be_set_apart_from_the_rest():
+    prefs = parse_preferences(
+        {
+            "revision": 2,
+            "interaction": {"mode": "dwell", "controls": {"confirm": "double_blink"}},
+        }
+    )[0]
+    assert prefs.mode_for("open_task") == "dwell", "should follow the global setting"
+    assert prefs.mode_for("confirm") == "double_blink", "was set apart"
+
+
+def test_an_unknown_control_name_is_ignored():
+    """A gateway must not be able to invent controls the glasses will
+    then quietly try to honour."""
+    prefs = parse_preferences(
+        {"revision": 2, "interaction": {"controls": {"launch_missiles": "dwell"}}}
+    )[0]
+    assert "launch_missiles" not in prefs.controls
+
+
+def test_an_unknown_mode_is_ignored():
+    prefs = parse_preferences(
+        {"revision": 2, "interaction": {"controls": {"confirm": "gaze"}}}
+    )[0]
+    assert "confirm" not in prefs.controls, "'gaze' must never become a setting"
+
+
+def test_gaze_is_not_a_mode_for_any_control():
+    """The rule that holds the whole design up: looking is never pressing."""
+    prefs = parse_preferences(
+        {
+            "revision": 2,
+            "interaction": {
+                "mode": "gaze",
+                "controls": {role: "gaze" for role in CONTROL_ROLES},
+            },
+        }
+    )[0]
+    assert prefs.activation != "gaze"
+    for role in CONTROL_ROLES:
+        assert prefs.mode_for(role) in ACTIVATION_MODES
+
+
+def test_controls_survive_a_round_trip_through_the_payload():
+    prefs = parse_preferences(
+        {"revision": 3, "interaction": {"controls": {"confirm": "double_blink"}}}
+    )[0]
+    again = parse_preferences(to_payload(prefs))[0]
+    assert again.controls == prefs.controls

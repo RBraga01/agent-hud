@@ -46,7 +46,11 @@ _ACTIONS_DIR = os.path.join(parts._ASSETS, "actions")
 
 
 def _satellite(
-    text: str, icon_name: str, on_click: Callable[[], None] | None
+    text: str,
+    icon_name: str,
+    on_click: Callable[[], None] | None,
+    *,
+    role: str = "choose_action",
 ) -> Button:
     """One of the four positions: a mark and a word, in a rounded box."""
     icon = Icon(
@@ -83,6 +87,10 @@ def _satellite(
         outline_color=s.ACCENT,
         enable_click=on_click is not None,
         scale_by=0.0,
+        # As on the count card: built by hand, so the wearer's setting has
+        # to be spread in explicitly or the framework default takes over
+        # and gaze alone starts choosing actions.
+        **parts.activation(role),
         **s.outline(),
     )
     if on_click is not None:
@@ -175,7 +183,7 @@ def build_action_menu(
 
     # Bottom: the way out. Always present.
     host.add(
-        _satellite("Cancel", "cancel.png", on_cancel),
+        _satellite("Cancel", "cancel.png", on_cancel, role="cancel"),
         cx - SATELLITE_W // 2,
         HEIGHT - SATELLITE_H,
     )

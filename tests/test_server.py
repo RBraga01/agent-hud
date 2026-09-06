@@ -1005,3 +1005,144 @@ def test_an_unlocked_gateway_does_not_ask_for_any_of_this(gateway):
 
     assert fetch_tasks(f"{base}/tasks", timeout=3).ok is True
     assert _pair(base).status_code == 200
+
+
+# --- changing settings from the Control --------------------------------
+#
+# The glasses read their settings from the gateway and never write them,
+# so until now nothing could change them at all: the Control could show
+# the wearer's choices but not alter one. Per-control activation is the
+# first setting anybody actually needs to change from a phone.
+
+
+SETTINGS_PATH = "/settings"
+
+
+def _put_settings(base, payload):
+    return requests.post(f"{base}{SETTINGS_PATH}", json=payload, timeout=3)
+
+
+def test_settings_can_be_changed(gateway):
+    base, _ = gateway
+
+    response = _put_settings(base, {"interaction": {"mode": "dwell"}})
+
+    assert response.status_code == 200
+    assert _get(base, SETTINGS_PATH).json()["interaction"]["mode"] == "dwell"
+
+
+def test_changing_settings_moves_the_revision_on(gateway):
+    """The glasses ignore a payload quoting a revision they have already
+    passed, so a change nobody numbered is a change nobody applies."""
+    base, _ = gateway
+    before = _get(base, SETTINGS_PATH).json()["revision"]
+
+    _put_settings(base, {"interaction": {"mode": "dwell"}})
+
+    assert _get(base, SETTINGS_PATH).json()["revision"] > before
+
+
+def test_one_control_can_be_set_apart(gateway):
+    base, _ = gateway
+
+    _put_settings(
+        base,
+        {"interaction": {"mode": "dwell", "controls": {"confirm": "double_blink"}}},
+    )
+
+    served = _get(base, SETTINGS_PATH).json()
+    assert served["interaction"]["controls"] == {"confirm": "double_blink"}
+
+
+def test_settings_not_mentioned_are_left_alone(gateway):
+    """A Control that only knows about some settings must not wipe the
+    rest by omitting them."""
+    base, _ = gateway
+    _put_settings(base, {"audio": {"language": "pt-PT"}})
+
+    _put_settings(base, {"interaction": {"mode": "dwell"}})
+
+    served = _get(base, SETTINGS_PATH).json()
+    assert served["audio"]["language"] == "pt-PT"
+    assert served["interaction"]["mode"] == "dwell"
+
+
+def test_gaze_cannot_be_set_as_an_activation(gateway):
+    """Not a validation nicety: it is the rule the whole design rests on."""
+    base, _ = gateway
+
+    _put_settings(
+        base,
+        {"interaction": {"mode": "gaze", "controls": {"confirm": "gaze"}}},
+    )
+
+    served = _get(base, SETTINGS_PATH).json()
+    assert served["interaction"]["mode"] != "gaze"
+    assert "confirm" not in served["interaction"]["controls"]
+
+
+def test_an_invented_control_is_refused(gateway):
+    base, _ = gateway
+
+    _put_settings(base, {"interaction": {"controls": {"open_the_pod_bay": "dwell"}}})
+
+    served = _get(base, SETTINGS_PATH).json()
+    assert "open_the_pod_bay" not in served["interaction"]["controls"]
+
+
+def test_rubbish_does_not_take_the_gateway_down(gateway):
+    base, _ = gateway
+
+    for junk in ("not json", "[]", '{"interaction": 7}', "null"):
+        response = requests.post(
+            f"{base}{SETTINGS_PATH}",
+            data=junk,
+            headers={"Content-Type": "application/json"},
+            timeout=3,
+        )
+        assert response.status_code in (200, 400), junk
+
+    assert _get(base, SETTINGS_PATH).status_code == 200
+
+
+def test_the_control_page_offers_every_control(gateway):
+    """The page and the glasses must agree on the list of controls. If
+    they drift, the Control offers settings the glasses ignore."""
+    from agent_hud.preferences import CONTROL_ROLES
+
+    base, _ = gateway
+    page = _get(base, "/control/control.js").text
+
+    for role in CONTROL_ROLES:
+        assert f'"{role}"' in page, f"the Control never offers {role!r}"
+
+
+def test_the_control_page_does_not_offer_gaze(gateway):
+    base, _ = gateway
+    page = _get(base, "/control/control.js").text
+    assert '"gaze"' not in page
+
+
+def test_setting_one_control_from_the_control_page(gateway):
+    """The round trip the page actually performs: send only the controls
+    map, and expect everything else to survive."""
+    base, _ = gateway
+    _put_settings(base, {"audio": {"language": "pt-PT"}})
+
+    response = _put_settings(
+        base, {"interaction": {"controls": {"confirm": "double_blink"}}}
+    )
+
+    assert response.status_code == 200
+    served = response.json()
+    assert served["interaction"]["controls"] == {"confirm": "double_blink"}
+    assert served["audio"]["language"] == "pt-PT"
+
+
+def test_a_control_can_be_put_back_under_the_main_setting(gateway):
+    base, _ = gateway
+    _put_settings(base, {"interaction": {"controls": {"confirm": "dwell"}}})
+
+    _put_settings(base, {"interaction": {"controls": {}}})
+
+    assert _get(base, SETTINGS_PATH).json()["interaction"]["controls"] == {}

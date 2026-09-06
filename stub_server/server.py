@@ -26,7 +26,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from agent_hud.preferences import Preferences, to_payload
+from agent_hud.preferences import Preferences, parse_preferences, to_payload
 
 from .auth import (
     AuthStore,
@@ -295,6 +295,42 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return None
         return payload
 
+    def _change_settings(self) -> None:
+        """Take a change to the wearer's settings from the Control.
+
+        The body is a partial settings document: whatever it does not
+        mention keeps the value it already has, so a Control that knows
+        about fewer settings than the gateway holds cannot wipe the rest
+        by omitting them.
+
+        Validation is not repeated here. ``parse_preferences`` is the same
+        function the glasses use on everything they are sent, and it
+        already refuses an unknown mode, an invented control name, and
+        anything shaped wrongly. Writing a second, looser check beside it
+        is how the two drift apart and one of them starts accepting
+        "gaze".
+        """
+        payload = self._json_body(allow_empty=True)
+        if payload is None:
+            return  # _json_body has already answered
+
+        # The gateway numbers the change, never the caller. The revision
+        # is how the glasses tell a newer choice from an older one
+        # arriving late; letting a client choose it would let a phone that
+        # has been asleep overwrite something newer.
+        numbered = dict(payload)
+        numbered["revision"] = self.server.preferences.revision + 1
+
+        updated, accepted = parse_preferences(
+            numbered, current=self.server.preferences
+        )
+        if not accepted:
+            self._respond(400, {"error": "settings could not be read"})
+            return
+
+        self.server.preferences = updated
+        self._respond(200, to_payload(updated))
+
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
 
@@ -365,6 +401,10 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         if not self._allowed(path):
             self._respond(401, {"error": "sign in first"})
+            return
+
+        if path == SETTINGS_PATH:
+            self._change_settings()
             return
 
         if path.startswith(TASKS_PATH + "/") and path.endswith(AUDIO_SUFFIX):
@@ -547,6 +587,12 @@ class _TasksHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        # Always revalidate. The gateway gets restarted with new Control
+        # files often, and a browser that kept the old bytes would show a
+        # page that no longer matches the gateway behind it -- which is
+        # exactly what "the settings section is stuck on Loading" looks
+        # like. On a localhost dev gateway a fresh read per load is free.
+        self.send_header("Cache-Control", "no-cache")
         # It talks to its own gateway and nothing else. Said out loud so a
         # browser enforces it even if the page is ever changed by mistake.
         self.send_header(

@@ -421,12 +421,21 @@ function settingRow(label, value) {
   return row;
 }
 
+function waitingOrOffline() {
+  // null until the first fetch returns; then the fetch either set
+  // state.settings or, on failure, left it null and set state.online
+  // false. Telling the two apart is the whole point.
+  return state.online === false
+    ? "Can’t reach the gateway. Check it is running, then Refresh."
+    : "Loading…";
+}
+
 function renderSettings() {
   const host = $("settings");
   host.innerHTML = "";
   const s = state.settings;
   if (!s) {
-    host.append(el("div", "empty", "Loading…"));
+    host.append(el("div", "empty", waitingOrOffline()));
     return;
   }
   const interaction =
@@ -447,6 +456,97 @@ function renderSettings() {
   host.append(note);
 }
 
+// The controls the wearer can set apart, named as they are experienced
+// rather than as they are built. Kept in the order they are met while
+// using the glasses, so the list reads like the journey through them.
+//
+// "sends" marks the ones that actually do something outside the glasses.
+// They are not forbidden from using dwell -- they are the wearer's
+// glasses -- but they say so plainly before anybody chooses it.
+const CONTROLS = [
+  { id: "open_list", name: "Open the list", sub: "The card showing how many are waiting" },
+  { id: "open_task", name: "Open a task", sub: "A row in the list" },
+  { id: "set_aside", name: "Later", sub: "Leave everything for now" },
+  { id: "back", name: "Back", sub: "Step back one screen" },
+  { id: "page", name: "Turn the page", sub: "Up and More on a long task" },
+  { id: "take_action", name: "Take action", sub: "Open the choices for a task" },
+  { id: "choose_action", name: "Choose an action", sub: "Approve, reject, reply" },
+  { id: "confirm", name: "Confirm", sub: "The last step before anything is sent", sends: true },
+  { id: "cancel", name: "Cancel", sub: "Back out without doing anything" },
+  { id: "retry", name: "Try again", sub: "After something failed" },
+];
+
+const MODES = [
+  { id: "double_blink", label: "Double blink" },
+  { id: "dwell", label: "Dwell" },
+];
+
+function renderControls() {
+  const host = $("controls");
+  host.innerHTML = "";
+  const s = state.settings;
+  if (!s) {
+    host.append(el("div", "empty", waitingOrOffline()));
+    return;
+  }
+
+  const global = s.interaction?.mode === "dwell" ? "dwell" : "double_blink";
+  const set = s.interaction?.controls || {};
+
+  CONTROLS.forEach((control) => {
+    const row = el("div", "row");
+
+    const body = el("div", "body");
+    body.append(el("div", "name", control.name));
+    const chosen = set[control.id];
+    let sub = control.sub;
+    if (!chosen) {
+      sub += " · following the main setting";
+    }
+    body.append(el("div", "sub", sub));
+    if (control.sends && (chosen || global) === "dwell") {
+      body.append(
+        el("div", "warn", "Your gaze alone will send this."),
+      );
+    }
+    row.append(body);
+
+    const pick = el("div", "pick");
+    MODES.forEach((mode) => {
+      const button = el("button", "", mode.label);
+      const active = (chosen || global) === mode.id;
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.setAttribute(
+        "aria-label",
+        `${control.name}: ${mode.label}`,
+      );
+      button.addEventListener("click", () => setControl(control.id, mode.id));
+      pick.append(button);
+    });
+    row.append(pick);
+    host.append(row);
+  });
+}
+
+async function setControl(role, mode) {
+  const current = state.settings?.interaction?.controls || {};
+  const next = { ...current, [role]: mode };
+
+  // Only the one control is sent. The gateway keeps everything the body
+  // does not mention, so a Control that knows about fewer settings than
+  // the gateway holds cannot wipe the rest.
+  const { status, payload } = await postJSON("/settings", {
+    interaction: { controls: next },
+  });
+  if (status === 200) {
+    state.settings = payload;
+    renderSettings();
+    renderControls();
+  } else {
+    say("That setting could not be changed.");
+  }
+}
+
 function renderDraft() {
   const card = $("pending-card");
   card.hidden = !state.draft;
@@ -461,6 +561,7 @@ function render() {
   renderTasks();
   renderSources();
   renderSettings();
+  renderControls();
   renderDraft();
 }
 

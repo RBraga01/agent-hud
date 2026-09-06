@@ -23,10 +23,32 @@ should be asked to wear, so it is not offered as an option.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 # How a wearer activates the control they are looking at.
+# The controls a wearer can set apart from the rest, named as they are
+# experienced rather than as they are built. One global setting was too
+# blunt: opening a task and confirming one are not the same risk, and
+# somebody happy to browse with their eyes may still want a deliberate
+# gesture before anything is sent.
+#
+# Roles, not individual buttons. A task row is one control however many
+# tasks are listed, and "Back" is the same idea on every screen it
+# appears on.
+CONTROL_ROLES = (
+    "open_list",
+    "open_task",
+    "set_aside",
+    "back",
+    "page",
+    "take_action",
+    "choose_action",
+    "confirm",
+    "cancel",
+    "retry",
+)
+
 ACTIVATION_MODES = ("double_blink", "dwell")
 
 # Bounds on the dwell. Too short and a glance becomes a press, which is
@@ -68,10 +90,20 @@ class Preferences:
     animations: bool = True
     audio_language: str = "auto"
     silence_ms: int = DEFAULT_SILENCE_MS
+    controls: dict = field(default_factory=dict)
 
     @property
     def uses_dwell(self) -> bool:
         return self.activation == "dwell"
+
+    def mode_for(self, role: str) -> str:
+        """How this one control is activated.
+
+        Anything not set apart follows the global choice, so the common
+        case stays one setting and the exceptions are the only thing
+        anybody has to think about.
+        """
+        return self.controls.get(role, self.activation)
 
 
 DEFAULTS = Preferences()
@@ -152,6 +184,7 @@ def parse_preferences(payload: Any, *, current: Preferences | None = None):
                 if dwell is not None
                 else base.dwell_ms
             ),
+            controls=_controls(interaction.get("controls"), base.controls),
             auto_scroll=_flag(scroll.get("auto"), base.auto_scroll),
             scroll_speed=_choice(
                 scroll.get("speed"), SCROLL_SPEEDS, base.scroll_speed
@@ -172,6 +205,23 @@ def parse_preferences(payload: Any, *, current: Preferences | None = None):
     )
 
 
+def _controls(raw, fallback: dict) -> dict:
+    """Per-control choices, keeping only names and modes we know.
+
+    An unrecognised control name is dropped rather than stored: the
+    gateway does not get to invent controls the glasses will then try to
+    honour. An unrecognised mode is dropped for the same reason, which is
+    also what keeps "gaze" from ever becoming a setting.
+    """
+    if not isinstance(raw, dict):
+        return dict(fallback)
+    return {
+        role: mode
+        for role, mode in raw.items()
+        if role in CONTROL_ROLES and mode in ACTIVATION_MODES
+    }
+
+
 def to_payload(preferences: Preferences) -> dict:
     """The shape the gateway serves. Used by the development gateway."""
     return {
@@ -179,6 +229,7 @@ def to_payload(preferences: Preferences) -> dict:
         "interaction": {
             "mode": preferences.activation,
             "dwell_ms": preferences.dwell_ms,
+            "controls": dict(preferences.controls),
         },
         "scroll": {
             "auto": preferences.auto_scroll,

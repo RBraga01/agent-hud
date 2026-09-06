@@ -190,6 +190,18 @@ dialog h3 { margin: 0 0 8px; font-size: 17px; }
 dialog p { color: var(--dim); margin: 0 0 4px; }
 
 .empty { color: var(--dim); padding: 6px 0 2px; }
+.hint { color: var(--dim); font-size: 13.5px; margin: 0 0 6px; }
+.row .pick { display: flex; gap: 6px; flex: none; }
+.row .pick button {
+  font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: transparent; color: var(--dim);
+  cursor: pointer;
+}
+.row .pick button[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--text); font-weight: 600;
+}
+.row .pick button:disabled { opacity: .5; cursor: default; }
+.row .warn { color: var(--bad); font-size: 12.5px; }
 .err { color: var(--bad); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
@@ -260,6 +272,15 @@ dialog p { color: var(--dim); margin: 0 0 4px; }
   <section id="settings-card">
     <h2>Settings</h2>
     <div id="settings"><div class="empty">Loading&hellip;</div></div>
+  </section>
+
+  <section id="controls-card">
+    <h2>How each control is activated</h2>
+    <p class="hint">
+      Double blink is a deliberate gesture. Dwell means holding your gaze
+      on something until it fills. Neither is triggered by looking alone.
+    </p>
+    <div id="controls"><div class="empty">Loading&hellip;</div></div>
   </section>
 </main>
 

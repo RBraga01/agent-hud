@@ -36,17 +36,37 @@ _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 #
 # It never changes *whether* a control can be activated, only how long a
 # dwell takes. There is no value it can hold that makes looking enough.
-_activation = {"mode": "double_blink", "dwell_ms": 1500}
+_activation = {"mode": "double_blink", "dwell_ms": 1500, "controls": {}}
 
 
-def set_activation(mode: str, dwell_ms: int) -> None:
-    """Apply the wearer's choice to every button built from now on."""
+def set_activation(mode: str, dwell_ms: int, controls: dict | None = None) -> None:
+    """Apply the wearer's choices to every button built from now on.
+
+    ``controls`` holds the ones set apart from the rest, by role. Anything
+    not named there follows ``mode``, so the ordinary case is still a
+    single setting.
+    """
     _activation["mode"] = mode
     _activation["dwell_ms"] = int(dwell_ms)
+    _activation["controls"] = dict(controls or {})
 
 
-def _dwell() -> dict:
-    return s.dwell_settings(_activation["mode"], _activation["dwell_ms"])
+def _dwell(role: str | None = None) -> dict:
+    mode = _activation["controls"].get(role, _activation["mode"])
+    return s.dwell_settings(mode, _activation["dwell_ms"])
+
+
+def activation(role: str | None = None) -> dict:
+    """The wearer's setting for one role, to spread into a Button.
+
+    Public because two screens need a Button this module does not build --
+    a whole card that is one big target, and the satellites of the action
+    menu. Both of them once left this out and silently kept the
+    framework's own default, which is a 1.5 second fill dwell: on those
+    screens, looking at something pressed it, whatever the wearer had
+    chosen. Anything pressable that is built by hand must spread this.
+    """
+    return _dwell(role)
 
 
 _SOURCE_MARKS = {
@@ -144,7 +164,11 @@ def rule(width: int) -> VerticalContainer:
 
 
 def primary_button(
-    text: str, on_click: Callable[[], None], *, width: int = s.BUTTON_MIN_WIDTH
+    text: str,
+    on_click: Callable[[], None],
+    *,
+    width: int = s.BUTTON_MIN_WIDTH,
+    role: str = "confirm",
 ) -> Button:
     """The action being suggested. Filled, so it is the brightest thing.
 
@@ -171,14 +195,18 @@ def primary_button(
         # The fill dwell would throw away the background colour that makes
         # this button the filled one, so the outline dwell is used here.
         use_fill_dwell=False,
-        dwell_time=_dwell()["dwell_time"],
+        dwell_time=_dwell(role)["dwell_time"],
     )
     button.on_clicked(on_click)
     return button
 
 
 def secondary_button(
-    text: str, on_click: Callable[[], None], *, width: int = s.BUTTON_MIN_WIDTH
+    text: str,
+    on_click: Callable[[], None],
+    *,
+    width: int = s.BUTTON_MIN_WIDTH,
+    role: str = "cancel",
 ) -> Button:
     """The way out. Outline only, so it never competes with the primary."""
     button = Button(
@@ -193,7 +221,7 @@ def secondary_button(
         outline_width=s.BORDER,
         outline_color=s.ACCENT,
         scale_by=0.0,
-        **_dwell(),
+        **_dwell(role),
         **s.outline(),
     )
     button.on_clicked(on_click)
@@ -206,6 +234,7 @@ def row_button(
     on_click: Callable[[], None] | None,
     *,
     width: int,
+    role: str = "open_task",
 ) -> Button:
     """One task in a list: its mark, its source, and one line about it."""
     text_width = width - s.ROW_ICON_SIZE - 56
@@ -252,7 +281,7 @@ def row_button(
         background_color=s.TRANSPARENT,
         enable_click=on_click is not None,
         scale_by=0.0,
-        **_dwell(),
+        **_dwell(role),
         **s.outline(),
     )
     if on_click is not None:

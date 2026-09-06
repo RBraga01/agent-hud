@@ -123,7 +123,7 @@ def build_review(
         card.add(
             parts.button_row(
                 INNER_WIDTH,
-                [parts.primary_button("Say it again", on_again, width=200)],
+                [parts.primary_button("Say it again", on_again, width=200, role="retry")],
             )
         )
         return card
@@ -141,7 +141,7 @@ def build_review(
         parts.button_row(
             INNER_WIDTH,
             [
-                parts.secondary_button("Say it again", on_again, width=190),
+                parts.secondary_button("Say it again", on_again, width=190, role="retry"),
                 parts.primary_button("Send", on_send, width=150),
             ],
         )

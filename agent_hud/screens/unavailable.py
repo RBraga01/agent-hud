@@ -79,7 +79,7 @@ def build_unavailable(
     card.add(
         parts.button_row(
             INNER_WIDTH,
-            [parts.primary_button("Try again", on_retry, width=190)],
+            [parts.primary_button("Try again", on_retry, width=190, role="retry")],
         )
     )
     return card

@@ -1088,7 +1088,11 @@ class AgentHud(RavenApp):
         self._preferences = preferences
         self._animate = preferences.animations
         # One setting, applied to every button built from here on.
-        parts.set_activation(preferences.activation, preferences.dwell_ms)
+        parts.set_activation(
+            preferences.activation,
+            preferences.dwell_ms,
+            preferences.controls,
+        )
         self._auto_scroll = AutoScroll(
             enabled=preferences.auto_scroll, speed=preferences.scroll_speed
         )

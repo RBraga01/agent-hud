@@ -68,17 +68,17 @@ def build_task_detail(
     if pages > 1:
         card.add(parts.small(f"{page + 1} of {pages}", width=INNER_WIDTH))
 
-    buttons = [parts.secondary_button("Back", on_back, width=140)]
+    buttons = [parts.secondary_button("Back", on_back, width=140, role="back")]
 
     # Paging controls only appear when there is somewhere to page to.
     if pages > 1 and page > 0 and on_scroll_up is not None:
-        buttons.append(parts.secondary_button("Up", on_scroll_up, width=100))
+        buttons.append(parts.secondary_button("Up", on_scroll_up, width=100, role="page"))
     if pages > 1 and page < pages - 1 and on_scroll_down is not None:
-        buttons.append(parts.secondary_button("More", on_scroll_down, width=110))
+        buttons.append(parts.secondary_button("More", on_scroll_down, width=110, role="page"))
 
     if on_take_action is not None:
         buttons.append(
-            parts.primary_button("Take action", on_take_action, width=190)
+            parts.primary_button("Take action", on_take_action, width=190, role="take_action")
         )
 
     card.add(parts.button_row(INNER_WIDTH, buttons))
