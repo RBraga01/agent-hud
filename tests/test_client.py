@@ -15,8 +15,14 @@ from dataclasses import FrozenInstanceError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+import requests
 
-from agent_hud.client import MAX_RESPONSE_BYTES, fetch_tasks
+from agent_hud.client import (
+    DEVICE_HEADER,
+    MAX_RESPONSE_BYTES,
+    fetch_settings,
+    fetch_tasks,
+)
 from agent_hud.tasks import MAX_TITLE
 from stub_server.server import TASKS_PATH, create_server
 
@@ -303,3 +309,83 @@ def test_a_long_title_from_the_gateway_comes_back_truncated_and_incomplete(stub_
     assert result.ok is True
     assert len(result.tasks[0].title) == MAX_TITLE
     assert result.truncated == 1
+
+
+# --- fetching the wearer's settings ------------------------------------
+#
+# The glasses could apply settings and the gateway could serve them, and
+# for a long while nothing joined the two: apply_preferences was reached
+# only by its own tests, so the display ran on defaults whatever anybody
+# chose. These cover the piece that was missing.
+
+
+def test_settings_are_fetched_from_the_gateway_root(monkeypatch):
+    asked = {}
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"revision": 4, "interaction": {"mode": "dwell"}}
+
+        def close(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        asked["url"] = url
+        asked["headers"] = kwargs.get("headers", {})
+        return Response()
+
+    monkeypatch.setattr("agent_hud.client.requests.get", fake_get)
+
+    payload = fetch_settings("http://gateway.test", device_token="abc")
+
+    assert asked["url"] == "http://gateway.test/settings"
+    assert asked["headers"][DEVICE_HEADER] == "abc"
+    assert payload["interaction"]["mode"] == "dwell"
+
+
+def test_an_unreachable_gateway_changes_no_setting(monkeypatch):
+    """Returning None means 'nothing to apply', which leaves every choice
+    exactly as it was."""
+
+    def fake_get(url, **kwargs):
+        raise requests.RequestException("no route")
+
+    monkeypatch.setattr("agent_hud.client.requests.get", fake_get)
+
+    assert fetch_settings("http://gateway.test") is None
+
+
+def test_a_gateway_that_answers_badly_changes_no_setting(monkeypatch):
+    class Response:
+        status_code = 500
+
+        def json(self):
+            raise AssertionError("must not be read")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "agent_hud.client.requests.get", lambda url, **kw: Response()
+    )
+
+    assert fetch_settings("http://gateway.test") is None
+
+
+def test_a_body_that_is_not_json_changes_no_setting(monkeypatch):
+    class Response:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("not json")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "agent_hud.client.requests.get", lambda url, **kw: Response()
+    )
+
+    assert fetch_settings("http://gateway.test") is None

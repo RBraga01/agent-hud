@@ -27,7 +27,12 @@ from raven_framework.core.raven_app import RavenApp
 from raven_framework.helpers.async_runner import AsyncRunner
 from raven_framework.helpers.themes import RAVEN_CORE as theme
 
-from .client import DEFAULT_TIMEOUT_SECONDS, FetchResult, fetch_tasks
+from .client import (
+    DEFAULT_TIMEOUT_SECONDS,
+    FetchResult,
+    fetch_settings,
+    fetch_tasks,
+)
 from .config import Settings, load_settings
 from .feedback import (
     Feedback,
@@ -138,12 +143,14 @@ class AgentHud(RavenApp):
         transcribe: Callable[..., tuple[str, str]] | None = None,
         gaze: Callable[[], tuple[int, int] | None] | None = None,
         clock: Callable[[], float] | None = None,
+        fetch_settings_fn: Callable[..., object] | None = None,
         auto_start: bool = True,
     ) -> None:
         super().__init__(parent)
 
         self._settings = settings or load_settings()
         self._fetch = fetch or fetch_tasks
+        self._fetch_settings = fetch_settings_fn or fetch_settings
         self._send = send or send_feedback
         self._transcribe = transcribe or self._transcribe_via_gateway
         self._gaze = gaze or _default_gaze
@@ -194,6 +201,7 @@ class AgentHud(RavenApp):
 
         self._async = AsyncRunner()
         self._pending: FetchResult | None = None
+        self._pending_settings: object | None = None
         self._poll_routine: Routine | None = None
         self._gaze_routine: Routine | None = None
         self._clock_routine: Routine | None = None
@@ -531,12 +539,14 @@ class AgentHud(RavenApp):
         tests, where a synchronous fetch against a local stub is what the
         assertions expect.
         """
+        token = self._settings.device_token
+        settings = self._fetch_settings(
+            self.gateway.base, DEFAULT_TIMEOUT_SECONDS, token
+        )
+        if settings is not None:
+            self.apply_preferences(settings)
         self.apply(
-            self._fetch(
-                self.gateway.url,
-                DEFAULT_TIMEOUT_SECONDS,
-                self._settings.device_token,
-            )
+            self._fetch(self.gateway.url, DEFAULT_TIMEOUT_SECONDS, token)
         )
 
     # -- drawing --------------------------------------------------------
@@ -868,8 +878,16 @@ class AgentHud(RavenApp):
 
         token = self._settings.device_token
 
+        base = self.gateway.base
+
         def work() -> None:
             self._pending = self._fetch(url, DEFAULT_TIMEOUT_SECONDS, token)
+            # Fetched on the same tick but kept apart: a settings endpoint
+            # that is missing or slow must never be able to empty the
+            # list, so its failure is a None nobody acts on.
+            self._pending_settings = self._fetch_settings(
+                base, DEFAULT_TIMEOUT_SECONDS, token
+            )
 
         # The completion callback takes no arguments and the worker's return
         # value is discarded — the framework's own documentation says
@@ -880,6 +898,11 @@ class AgentHud(RavenApp):
     def _apply_pending(self) -> None:
         """Runs on the main thread once the worker finishes, always."""
         try:
+            # Settings first, so the list is drawn with the choices that
+            # came back on the same tick rather than the previous ones.
+            if self._pending_settings is not None:
+                self.apply_preferences(self._pending_settings)
+                self._pending_settings = None
             if self._pending is not None:
                 self.apply(self._pending)
                 self._pending = None

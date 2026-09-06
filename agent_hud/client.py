@@ -53,6 +53,51 @@ class FetchResult:
 
 DEVICE_HEADER = "X-Agent-Hud-Device"
 
+# Where the wearer's choices live, relative to the gateway root.
+SETTINGS_PATH = "/settings"
+
+
+def fetch_settings(
+    base_url: str,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    device_token: str = "",
+) -> dict | None:
+    """Ask the gateway what the wearer has chosen.
+
+    Returns the raw payload, or None when there is nothing usable to
+    apply. None is not an error state to show anybody: settings are not
+    the reason the glasses are being worn, and a gateway that cannot
+    answer this should leave every choice exactly as it was rather than
+    resetting the display to defaults.
+
+    Deliberately separate from ``fetch_tasks``. A settings endpoint that
+    is missing, slow or broken must never be able to empty the list, and
+    keeping them apart is what guarantees that.
+    """
+    url = f"{base_url.rstrip('/')}{SETTINGS_PATH}"
+    try:
+        response = requests.get(
+            url,
+            timeout=timeout,
+            headers={DEVICE_HEADER: device_token} if device_token else {},
+        )
+    except requests.RequestException:
+        return None
+
+    try:
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+
+    return payload if isinstance(payload, dict) else None
+
 
 def fetch_tasks(
     url: str,

@@ -1508,3 +1508,73 @@ def test_the_listening_screen_does_not_claim_to_hear_you_stop(qapp):
 
     assert "when you stop talking" not in source
     assert "press Done" in source
+
+
+# --- the settings the wearer chose actually reach the display ----------
+#
+# apply_preferences existed, the gateway served /settings, and for a long
+# time nothing joined them: the method was reached only by its own tests,
+# so the glasses ran on defaults whatever anybody chose. Both ends passed
+# their unit tests the whole time, which is exactly why these check the
+# join rather than the ends.
+
+
+def test_the_display_asks_the_gateway_for_settings(qapp):
+    asked = []
+
+    hud = AgentHud(
+        settings=SETTINGS,
+        fetch=lambda *a, **k: FetchResult(tasks=[], ok=True),
+        fetch_settings_fn=lambda base, timeout, token: asked.append(base)
+        or {"revision": 9, "interaction": {"mode": "dwell", "dwell_ms": 1100}},
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    hud.refresh_now()
+
+    assert asked, "the display never asked the gateway for settings"
+    assert asked[0].endswith("//127.0.0.1:9"), asked[0]
+    assert hud._preferences.dwell_ms == 1100, "the answer was not applied"
+
+
+def test_a_control_set_apart_reaches_the_buttons(qapp):
+    """The whole point of the per-control setting, end to end."""
+    from agent_hud.screens import parts
+
+    hud = AgentHud(
+        settings=SETTINGS,
+        fetch=lambda *a, **k: FetchResult(tasks=[], ok=True),
+        fetch_settings_fn=lambda *a, **k: {
+            "revision": 9,
+            "interaction": {
+                "mode": "dwell",
+                "dwell_ms": 1100,
+                "controls": {"confirm": "double_blink"},
+            },
+        },
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    hud.refresh_now()
+
+    assert parts.activation("open_task")["use_fill_dwell"] is True
+    assert parts.activation("confirm")["use_fill_dwell"] is False
+
+
+def test_a_gateway_with_no_settings_endpoint_changes_nothing(qapp):
+    """Settings are not why the glasses are worn. A gateway that cannot
+    answer this must leave every choice alone, not reset the display."""
+    hud = AgentHud(
+        settings=SETTINGS,
+        fetch=lambda *a, **k: FetchResult(tasks=[], ok=True),
+        fetch_settings_fn=lambda *a, **k: None,
+        gaze=lambda: None,
+        clock=lambda: 0.0,
+        auto_start=False,
+    )
+    before = hud._preferences
+    hud.refresh_now()
+
+    assert hud._preferences == before
