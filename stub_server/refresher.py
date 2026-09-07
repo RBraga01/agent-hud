@@ -29,14 +29,14 @@ class Refresher(threading.Thread):
         collect: Callable[[], list[dict]],
         *,
         interval: float = DEFAULT_INTERVAL,
-        on_error: Callable[[BaseException], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         super().__init__(daemon=True, name="task-refresher")
         self._store = store
         self._collect = collect
         self._interval = max(0.2, float(interval))
         self._on_error = on_error
-        self._stop = threading.Event()
+        self._halt = threading.Event()
 
     def sweep_once(self) -> bool:
         """Run the feeders once and write the slice. Returns True on success."""
@@ -51,11 +51,11 @@ class Refresher(threading.Thread):
 
     def run(self) -> None:
         self.sweep_once()
-        while not self._stop.wait(self._interval):
+        while not self._halt.wait(self._interval):
             self.sweep_once()
 
     def stop(self, timeout: float = 2.0) -> None:
-        self._stop.set()
+        self._halt.set()
         if self.is_alive():
             self.join(timeout=timeout)
 
