@@ -24,6 +24,7 @@ DEFAULT_POLL_SECONDS = 3.0
 
 _GATEWAY_URL_VAR = "AGENT_HUD_GATEWAY_URL"
 _POLL_SECONDS_VAR = "AGENT_HUD_POLL_SECONDS"
+_REFRESH_SECONDS_VAR = "AGENT_HUD_REFRESH_SECONDS"
 _FEEDERS_VAR = "AGENT_HUD_FEEDERS"
 _SHOW_PROMPTS_VAR = "AGENT_HUD_SHOW_PROMPTS"
 _ANIMATIONS_VAR = "AGENT_HUD_ANIMATIONS"
@@ -59,6 +60,9 @@ class Settings:
 
     gateway_url: str
     poll_seconds: float
+    # How often the gateway re-runs the polled feeders into its store,
+    # independent of how often the glasses ask.
+    refresh_seconds: float = 5.0
     feeders: tuple[str, ...] = DEFAULT_FEEDERS
     show_prompts: bool = False
     # Slide-and-fade transitions between screen states. On by default;
@@ -167,6 +171,26 @@ def _read_poll_seconds(env: Mapping[str, str]) -> float:
     return seconds
 
 
+def _read_refresh_seconds(env: Mapping[str, str]) -> float:
+    """How often the gateway re-runs the polled feeders. Gateway-side; the
+    glasses never see it."""
+    raw = env.get(_REFRESH_SECONDS_VAR)
+    if raw is None or not raw.strip():
+        return 5.0
+    try:
+        seconds = float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"{_REFRESH_SECONDS_VAR} must be a number, got {raw!r}"
+        ) from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError(
+            f"{_REFRESH_SECONDS_VAR} must be a finite number greater than "
+            f"zero, got {raw!r}"
+        )
+    return seconds
+
+
 def _read_feeders(env: Mapping[str, str]) -> tuple[str, ...]:
     raw = env.get(_FEEDERS_VAR)
     if raw is None:
@@ -246,6 +270,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     return Settings(
         gateway_url=_read_gateway_url(source),
         poll_seconds=_read_poll_seconds(source),
+        refresh_seconds=_read_refresh_seconds(source),
         feeders=_read_feeders(source),
         show_prompts=_read_show_prompts(source),
         animations=_read_animations(source),

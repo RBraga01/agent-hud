@@ -342,6 +342,22 @@ It reads the transcript files with no setup, which is useful for a first try, bu
 
 Two feeders sit outside the log-tailing shape. `github` has no per-session log at all, so it asks GitHub via `gh`. `opencode` does keep session state locally, but in a SQLite database rather than log files, so it queries `opencode.db` read-only. Cursor and the GitHub Copilot CLI do follow the log-on-disk shape — `feeders/codex.py` is the template — and are not implemented yet because verifying each on-disk format needs the tool installed. See the roadmap.
 
+## How the gateway keeps the list
+
+The gateway holds its own copy of the merged list rather than rebuilding
+it inside every request. Two things fill it:
+
+* a **background sweep** runs the polled feeders -- the ones that read a
+  file, the database, or call `gh` -- once every `AGENT_HUD_REFRESH_SECONDS`
+  (default 5), whatever the clients are doing;
+* **`POST /events`** with `{"source": "...", "tasks": [...]}` replaces one
+  source's slice straight away, so a hook that knows the moment something
+  changed does not wait for the next sweep.
+
+`GET /tasks` just reads the snapshot and carries an `X-Tasks-Version`
+header that moves only on a real change. A sweep that raises leaves the
+previous slice in place.
+
 ## What the gateway sends
 
 The app knows nothing about Claude, Codex, GitHub, or any other tool. It receives a list of tasks and draws them. Everything tool-specific belongs on the gateway side, so adding a new source never means changing and redeploying the glasses app.
@@ -409,7 +425,9 @@ feeders/
 integrations/
   claude_code/          four Claude Code hook scripts + shared helper
 stub_server/
-  server.py             asks the feeders on every request  no framework needed
+  server.py             serves a store; a sweep + POST /events fill it  no framework needed
+  store.py              the gateway's own view of the list
+  refresher.py          the background feeder sweep
   agents.json           edit this when using the file feeder
 tests/
 ```
@@ -436,7 +454,7 @@ Where this is going, in the order it needs to happen.
 | **Done** | One request at a time | A slow gateway cannot walk the display backwards |
 | **Blocked on Raven** | The credential path | Raven's public developer token and its runtime mechanism have not been released; internal testing adds credentials locally |
 | **Done** | A supported Claude signal | `claude_hook` feeder + two Claude Code hooks, replacing the transcript parser |
-| **In progress** | More sources | Codex, GitHub and OpenCode feeders done; Cursor, Copilot CLI and an event-shaped gateway still to come |
+| **In progress** | More sources | Codex, GitHub, OpenCode feeders and the event-shaped gateway done; Cursor and Copilot CLI still to come |
 | **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
 | **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
 | **Later** | Acting, carefully | Approving things by eye is a much bigger decision about safety than reading is. It comes last, on purpose, and only once reading has proved itself. |

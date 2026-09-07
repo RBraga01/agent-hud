@@ -39,6 +39,7 @@ from .auth import (
 )
 from .drafts import DraftBook
 from .policy import Policy
+from .store import TaskStore
 from .transcription import (
     MAX_AUDIO_BYTES,
     load_transcriber,
@@ -50,6 +51,7 @@ SETTINGS_PATH = "/settings"
 CONTROL_PREFIX = "/control/"
 AUDIO_SUFFIX = "/audio"
 DRAFTS_PATH = "/drafts"
+EVENTS_PATH = "/events"
 AUTH_PREFIX = "/auth/"
 SESSION_COOKIE = "agent_hud_session"
 DEVICE_HEADER = "X-Agent-Hud-Device"
@@ -295,6 +297,48 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return None
         return payload
 
+    def _ingest_event(self) -> None:
+        """Take a pushed slice of the task list from a source.
+
+        Body: ``{"source": "<name>", "tasks": [ ... ]}``. The slice
+        replaces whatever that source pushed before; it does not touch
+        the polled slice or any other source. A source that knows the
+        moment something changed calls this instead of waiting for the
+        gateway's next sweep.
+
+        Only accepted when the gateway keeps its own view of the list
+        (``store`` set). Otherwise there is nowhere to put it.
+        """
+        if self.server.store is None:
+            self._respond(404, {"error": "this gateway does not take events"})
+            return
+
+        payload = self._json_body()
+        if payload is None:
+            return  # _json_body already answered
+
+        source = payload.get("source")
+        if not isinstance(source, str) or not source.strip():
+            self._respond(400, {"error": "source is required"})
+            return
+
+        tasks = payload.get("tasks")
+        if not isinstance(tasks, list) or any(
+            not isinstance(t, dict) for t in tasks
+        ):
+            self._respond(400, {"error": "tasks must be a list of objects"})
+            return
+
+        changed = self.server.store.replace(f"push:{source.strip()}", tasks)
+        self._respond(
+            200,
+            {
+                "accepted": len(tasks),
+                "changed": changed,
+                "version": self.server.store.version,
+            },
+        )
+
     def _change_settings(self) -> None:
         """Take a change to the wearer's settings from the Control.
 
@@ -385,7 +429,10 @@ class _TasksHandler(BaseHTTPRequestHandler):
             self._respond(500, {"error": f"feeder failed: {exc}"})
             return
 
-        self._respond(200, {"tasks": tasks})
+        extra_headers = None
+        if self.server.store is not None:
+            extra_headers = {"X-Tasks-Version": str(self.server.store.version)}
+        self._respond(200, {"tasks": tasks}, headers=extra_headers)
 
     def do_POST(self) -> None:
         """Take one answer from the glasses.
@@ -405,6 +452,10 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         if path == SETTINGS_PATH:
             self._change_settings()
+            return
+
+        if path == EVENTS_PATH:
+            self._ingest_event()
             return
 
         if path.startswith(TASKS_PATH + "/") and path.endswith(AUDIO_SUFFIX):
@@ -607,12 +658,19 @@ class _TasksHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _respond(
-        self, status: int, payload: object, *, session: str | None = None
+        self,
+        status: int,
+        payload: object,
+        *,
+        session: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         if session is not None:
             # HttpOnly so no script can read it, SameSite so another site
             # cannot make a browser use it. Not Secure, because this is
@@ -646,9 +704,13 @@ class _TasksServer(ThreadingHTTPServer):
         transcriber: str = "",
         require_auth: bool = False,
         auth_path: Path | None = None,
+        store: TaskStore | None = None,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
+        # Set when the gateway keeps its own view of the list and takes
+        # pushes at POST /events. None means the old shape: provider only.
+        self.store = store
         # The gateway owns the wearer's preferences; the glasses cache
         # them. The Control app is what changes them, so this development
         # gateway simply serves a fixed, sensible set.
@@ -677,6 +739,7 @@ def create_server(
     transcriber: str = "",
     require_auth: bool = False,
     auth_path: Path | None = None,
+    store: TaskStore | None = None,
 ) -> _TasksServer:
     """Build a server bound to loopback.
 
@@ -692,6 +755,7 @@ def create_server(
         transcriber=transcriber,
         require_auth=require_auth,
         auth_path=auth_path,
+        store=store,
     )
 
 
@@ -700,15 +764,31 @@ def main() -> None:
     from agent_hud.config import load_settings
     from feeders import collect
 
+    from .refresher import Refresher
+
     settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
-    server = create_server(
+
+    # The gateway keeps its own view of the list. A background sweep runs
+    # the polled feeders on their own clock; POST /events lets a source
+    # push. The request path only reads the snapshot.
+    store = TaskStore()
+    refresher = Refresher(
+        store,
         lambda: collect(settings, file_path=DEFAULT_DATA_PATH),
+        interval=settings.refresh_seconds,
+        on_error=lambda exc: print(f"feeder sweep failed: {exc}"),
+    )
+    refresher.start()
+
+    server = create_server(
+        store.snapshot,
         port=port,
         gateway_name=settings.active_gateway.name,
         transcriber=settings.transcriber,
         require_auth=settings.require_auth,
         auth_path=settings.auth_path,
+        store=store,
         sources=[
             {"name": name, "label": name.replace("_", " ").title(), "on": True}
             for name in settings.feeders
@@ -717,7 +797,8 @@ def main() -> None:
     host, bound_port = server.server_address[:2]
     print(f"Stub gateway on http://{host}:{bound_port}{TASKS_PATH}")
     print(f"Control on      http://{host}:{bound_port}{CONTROL_PREFIX}")
-    print(f"Feeders: {', '.join(settings.feeders)}")
+    print(f"Feeders: {', '.join(settings.feeders)}  (sweep every "
+          f"{settings.refresh_seconds:g}s; push at {EVENTS_PATH})")
     if "file" in settings.feeders:
         print(f"Editing {DEFAULT_DATA_PATH} changes what the glasses show.")
     try:
@@ -725,6 +806,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        refresher.stop()
         server.server_close()
 
 

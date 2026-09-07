@@ -1161,3 +1161,136 @@ def test_control_files_are_served_without_being_cached(gateway):
         assert "no-cache" in cache or "no-store" in cache, (
             f"/control/{name} was served as cacheable: {cache!r}"
         )
+
+
+# --- the event-shaped gateway ---------------------------------------------
+#
+# Instead of running every feeder inside every GET, the gateway keeps its
+# own view: a background sweep for the polled sources, and POST /events for
+# a source that knows the moment something changed.
+
+
+@pytest.fixture
+def event_gateway():
+    """A gateway backed by a TaskStore, with no background sweep running
+    (the tests drive the store directly)."""
+    from stub_server.server import create_server
+    from stub_server.store import TaskStore
+
+    store = TaskStore()
+    store.replace("poll", [dict(TASK)])
+    server = create_server(store.snapshot, port=0, store=store)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield base, store
+
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+def test_get_tasks_is_served_from_the_store(event_gateway):
+    base, store = event_gateway
+
+    got = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()["tasks"]
+    assert [t["id"] for t in got] == [TASK["id"]]
+
+    store.replace("poll", [{"id": "fresh", "revision": 1, "needs_you": True}])
+    got = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()["tasks"]
+    assert [t["id"] for t in got] == ["fresh"]
+
+
+def test_get_tasks_carries_the_store_version_as_a_header(event_gateway):
+    base, store = event_gateway
+
+    r = requests.get(f"{base}{TASKS_PATH}", timeout=5)
+    assert r.headers["X-Tasks-Version"] == str(store.version)
+
+    store.replace("push:x", [{"id": "e1", "revision": 1}])
+    r = requests.get(f"{base}{TASKS_PATH}", timeout=5)
+    assert r.headers["X-Tasks-Version"] == str(store.version)
+
+
+def test_a_pushed_slice_shows_up_immediately(event_gateway):
+    base, store = event_gateway
+
+    r = requests.post(
+        f"{base}/events",
+        json={
+            "source": "claude_hook",
+            "tasks": [{"id": "ch-1", "revision": 2, "needs_you": True,
+                       "source": "Claude", "title": "iPS"}],
+        },
+        timeout=5,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["accepted"] == 1 and body["changed"] is True
+    assert body["version"] == store.version
+
+    got = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()["tasks"]
+    assert "ch-1" in {t["id"] for t in got}
+
+
+def test_pushing_the_same_slice_again_reports_no_change(event_gateway):
+    base, _ = event_gateway
+    payload = {"source": "codex", "tasks": [{"id": "cx-1", "revision": 1}]}
+
+    requests.post(f"{base}/events", json=payload, timeout=5)
+    again = requests.post(f"{base}/events", json=payload, timeout=5).json()
+
+    assert again["changed"] is False
+
+
+def test_a_push_replaces_only_its_own_source(event_gateway):
+    base, store = event_gateway
+    store.replace("poll", [{"id": "p", "revision": 1}])
+
+    requests.post(
+        f"{base}/events",
+        json={"source": "github", "tasks": [{"id": "g", "revision": 1}]},
+        timeout=5,
+    )
+
+    got = requests.get(f"{base}{TASKS_PATH}", timeout=5).json()["tasks"]
+    assert {t["id"] for t in got} == {"p", "g"}
+
+
+def test_events_needs_a_source(event_gateway):
+    base, _ = event_gateway
+    r = requests.post(f"{base}/events", json={"tasks": []}, timeout=5)
+    assert r.status_code == 400
+
+
+def test_events_rejects_tasks_that_are_not_a_list_of_objects(event_gateway):
+    base, _ = event_gateway
+    for bad in ({"source": "x", "tasks": "nope"},
+                {"source": "x", "tasks": [1, 2]},
+                {"source": "x", "tasks": [{"id": "ok"}, "bad"]}):
+        r = requests.post(f"{base}/events", json=bad, timeout=5)
+        assert r.status_code == 400, bad
+
+
+def test_events_rejects_a_non_json_body(event_gateway):
+    base, _ = event_gateway
+    r = requests.post(
+        f"{base}/events", data="not json",
+        headers={"Content-Type": "application/json"}, timeout=5,
+    )
+    assert r.status_code == 400
+
+
+def test_a_provider_only_gateway_refuses_events(gateway):
+    base, _ = gateway
+    r = requests.post(
+        f"{base}/events", json={"source": "x", "tasks": []}, timeout=5
+    )
+    assert r.status_code == 404
+
+
+def test_a_provider_only_gateway_sends_no_version_header(gateway):
+    base, _ = gateway
+    r = requests.get(f"{base}{TASKS_PATH}", timeout=5)
+    assert "X-Tasks-Version" not in r.headers
