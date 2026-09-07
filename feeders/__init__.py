@@ -17,7 +17,7 @@ from pathlib import Path
 
 from agent_hud.config import Settings
 
-from . import claude_hook, claude_sessions, codex, github, simulated
+from . import claude_hook, claude_sessions, codex, github, opencode, simulated
 
 __all__ = [
     "FileFeederError",
@@ -27,6 +27,7 @@ __all__ = [
     "collect",
     "file_items",
     "github",
+    "opencode",
     "simulated",
 ]
 
@@ -89,6 +90,8 @@ def collect(settings: Settings, *, file_path: Path | str | None = None) -> list[
             items.extend(codex.collect(settings.codex_dir))
         elif name == "github":
             items.extend(github.collect())
+        elif name == "opencode":
+            items.extend(opencode.collect(settings.opencode_db))
         elif name == "file" and file_path is not None:
             items.extend(file_items(file_path))
     return items

@@ -30,6 +30,7 @@ _ANIMATIONS_VAR = "AGENT_HUD_ANIMATIONS"
 _CLAUDE_PROJECTS_VAR = "AGENT_HUD_CLAUDE_PROJECTS"
 _CLAUDE_STATE_VAR = "AGENT_HUD_CLAUDE_STATE"
 _CODEX_DIR_VAR = "AGENT_HUD_CODEX_DIR"
+_OPENCODE_DB_VAR = "AGENT_HUD_OPENCODE_DB"
 _SKIP_PATH_WORDS_VAR = "AGENT_HUD_SKIP_PATH_WORDS"
 _GATEWAYS_VAR = "AGENT_HUD_GATEWAYS"
 _ACTIVE_GATEWAY_VAR = "AGENT_HUD_ACTIVE_GATEWAY"
@@ -41,7 +42,9 @@ _DEVICE_TOKEN_VAR = "AGENT_HUD_DEVICE_TOKEN"
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
 DEFAULT_FEEDERS = ("simulated",)
-KNOWN_FEEDERS = ("simulated", "claude", "claude_hook", "codex", "github", "file")
+KNOWN_FEEDERS = (
+    "simulated", "claude", "claude_hook", "codex", "github", "opencode", "file"
+)
 
 _TRUE_WORDS = frozenset({"1", "true", "yes", "on"})
 
@@ -71,6 +74,11 @@ class Settings:
     )
     # The Codex CLI directory, for the codex feeder.
     codex_dir: Path = field(default_factory=lambda: Path.home() / ".codex")
+    # The OpenCode SQLite database, for the opencode feeder.
+    opencode_db: Path = field(
+        default_factory=lambda: Path.home()
+        / ".local" / "share" / "opencode" / "opencode.db"
+    )
     # Extra generic folder names to drop when naming a project. Empty means
     # use the feeder's own list, which already covers the common ones.
     skip_path_words: tuple[str, ...] = ()
@@ -211,6 +219,13 @@ def _read_codex_dir(env: Mapping[str, str]) -> Path:
     return Path(raw.strip())
 
 
+def _read_opencode_db(env: Mapping[str, str]) -> Path:
+    raw = env.get(_OPENCODE_DB_VAR)
+    if raw is None or not raw.strip():
+        return Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+    return Path(raw.strip())
+
+
 def _read_skip_path_words(env: Mapping[str, str]) -> tuple[str, ...]:
     raw = env.get(_SKIP_PATH_WORDS_VAR, "")
     return tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -237,6 +252,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         claude_projects=_read_claude_projects(source),
         claude_state=_read_claude_state(source),
         codex_dir=_read_codex_dir(source),
+        opencode_db=_read_opencode_db(source),
         skip_path_words=_read_skip_path_words(source),
         gateways=_read_gateways(source),
         transcriber=source.get(_TRANSCRIBER_VAR, "").strip(),

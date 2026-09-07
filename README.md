@@ -244,11 +244,12 @@ All settings are optional and read from the environment. Nothing is written into
 |---|---|---|
 | `AGENT_HUD_GATEWAY_URL` | `http://127.0.0.1:8765/tasks` | Where to ask for the task list. Answers go back to the same server, at `/tasks/{id}/feedback` |
 | `AGENT_HUD_POLL_SECONDS` | `3` | How often to ask |
-| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `github`, `file` |
+| `AGENT_HUD_FEEDERS` | `simulated` | Which sources to read, in order. Any of `simulated`, `claude_hook`, `claude`, `codex`, `github`, `opencode`, `file` |
 | `AGENT_HUD_SHOW_PROMPTS` | off | Show the last thing you asked Claude. Off on purpose |
 | `AGENT_HUD_CLAUDE_PROJECTS` | `~/.claude/projects` | Where the `claude` feeder looks for sessions |
 | `AGENT_HUD_CLAUDE_STATE` | `~/.agent-hud/claude` | Where the `claude_hook` feeder and hooks read/write state |
 | `AGENT_HUD_CODEX_DIR` | `~/.codex` | The Codex CLI directory, for the `codex` feeder |
+| `AGENT_HUD_OPENCODE_DB` | `~/.local/share/opencode/opencode.db` | The OpenCode SQLite database, for the `opencode` feeder |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
 | `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between screens. `off` for a lower-motion display |
@@ -286,6 +287,7 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | `claude` | Your live Claude Code sessions under `~/.claude/projects`, by reading the transcript files directly. No setup, but the format is undocumented. |
 | `codex` | Your recent Codex CLI sessions, from `~/.codex`. Reads the session index for a title and the session log's tail for whose turn it is. Undocumented format, like `claude`. |
 | `github` | Open pull requests, in any repository you can see, where you have been asked to review. Asks GitHub through the `gh` CLI, so there is no token for this project to hold. Draft PRs are skipped; no PR body is read. |
+| `opencode` | Your recent OpenCode sessions. OpenCode keeps its state in one SQLite database rather than log files, so this opens `opencode.db` read-only and reads whose turn it is from the newest message. Undocumented schema, like `claude` and `codex`. |
 | `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. An absent file is fine (no data yet); a file that is present but not valid JSON is treated as a broken source and shows the incomplete marker rather than an empty screen. |
 
 Choose them in order — the first one listed appears first on screen:
@@ -338,7 +340,7 @@ It reads the transcript files with no setup, which is useful for a first try, bu
 
 ### Other agent CLIs
 
-The `github` feeder is different from the log-tailing ones: GitHub keeps no per-session log on disk, so it asks GitHub directly via `gh`. Cursor, OpenCode and the GitHub Copilot CLI do follow the log-on-disk shape — `feeders/codex.py` is the template — and are not implemented yet because verifying each on-disk format needs the tool installed. See the roadmap.
+Two feeders sit outside the log-tailing shape. `github` has no per-session log at all, so it asks GitHub via `gh`. `opencode` does keep session state locally, but in a SQLite database rather than log files, so it queries `opencode.db` read-only. Cursor and the GitHub Copilot CLI do follow the log-on-disk shape — `feeders/codex.py` is the template — and are not implemented yet because verifying each on-disk format needs the tool installed. See the roadmap.
 
 ## What the gateway sends
 
@@ -403,6 +405,7 @@ feeders/
   claude_sessions.py    reads Claude transcripts (fallback)no framework needed
   codex.py              reads Codex CLI sessions           no framework needed
   github.py             asks gh for review requests        no framework needed
+  opencode.py           reads the OpenCode SQLite db       no framework needed
 integrations/
   claude_code/          four Claude Code hook scripts + shared helper
 stub_server/
@@ -433,7 +436,7 @@ Where this is going, in the order it needs to happen.
 | **Done** | One request at a time | A slow gateway cannot walk the display backwards |
 | **Blocked on Raven** | The credential path | Raven's public developer token and its runtime mechanism have not been released; internal testing adds credentials locally |
 | **Done** | A supported Claude signal | `claude_hook` feeder + two Claude Code hooks, replacing the transcript parser |
-| **In progress** | More sources | Codex and GitHub feeders done; Cursor/OpenCode/Copilot and an event-shaped gateway still to come |
+| **In progress** | More sources | Codex, GitHub and OpenCode feeders done; Cursor, Copilot CLI and an event-shaped gateway still to come |
 | **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
 | **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
 | **Later** | Acting, carefully | Approving things by eye is a much bigger decision about safety than reading is. It comes last, on purpose, and only once reading has proved itself. |
