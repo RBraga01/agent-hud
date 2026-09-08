@@ -573,6 +573,124 @@ def test_bring_your_own_certificate_is_trusted_by_its_ca_file(tmp_path):
         stop()
 
 
+# --- one noisy client cannot swamp it -----------------------------------
+
+
+def _serve_limited(provider=None, **limits):
+    """A gateway on a free port with limits a test can make tiny."""
+    from stub_server.server import create_server
+
+    server = create_server(provider or (lambda: list(SAMPLE)), port=0, **limits)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def stop():
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    return f"http://127.0.0.1:{server.server_address[1]}", server, stop
+
+
+def _pair_post(base, headers=None):
+    return requests.post(
+        f"{base}/auth/devices/pair", json={"name": "x"},
+        headers=headers or {}, timeout=5,
+    )
+
+
+def test_writes_are_rate_limited_per_client():
+    base, _, stop = _serve_limited(write_rate=1.0, write_burst=2)
+    try:
+        codes = [_pair_post(base).status_code for _ in range(4)]
+        assert codes[:2] == [200, 200]
+        assert codes[2] == 429
+        # and it says how it is meant to be handled
+        again = _pair_post(base)
+        assert again.status_code == 429
+        assert again.headers.get("Retry-After") == "1"
+    finally:
+        stop()
+
+
+def test_reads_are_never_rate_limited():
+    base, _, stop = _serve_limited(write_rate=1.0, write_burst=1)
+    try:
+        codes = [
+            requests.get(f"{base}{TASKS_PATH}", timeout=5).status_code
+            for _ in range(15)
+        ]
+        assert codes == [200] * 15
+    finally:
+        stop()
+
+
+def test_each_client_has_its_own_write_budget():
+    base, _, stop = _serve_limited(write_rate=1.0, write_burst=2)
+    try:
+        a = {"X-Agent-Hud-Device": "device-a"}
+        b = {"X-Agent-Hud-Device": "device-b"}
+        assert [_pair_post(base, a).status_code for _ in range(3)] == [
+            200, 200, 429,
+        ]
+        # b's bucket is untouched
+        assert _pair_post(base, b).status_code == 200
+    finally:
+        stop()
+
+
+def test_too_many_connections_at_once_are_refused():
+    import threading as _t
+
+    holding = _t.Event()
+    release = _t.Event()
+
+    def slow_provider():
+        holding.set()
+        release.wait(3)
+        return list(SAMPLE)
+
+    base, _, stop = _serve_limited(slow_provider, max_connections=1)
+    try:
+        first = _t.Thread(
+            target=lambda: requests.get(f"{base}{TASKS_PATH}", timeout=5),
+            daemon=True,
+        )
+        first.start()
+        assert holding.wait(3)  # the one slot is now taken
+
+        with pytest.raises(requests.exceptions.ConnectionError):
+            requests.get(f"{base}{TASKS_PATH}", timeout=5)
+
+        release.set()
+        first.join(timeout=5)
+    finally:
+        release.set()
+        stop()
+
+
+def test_a_body_that_never_arrives_is_cut_off():
+    import socket
+
+    base, _, stop = _serve_limited(request_timeout=0.5)
+    try:
+        host, port = base.removeprefix("http://").split(":")
+        conn = socket.create_connection((host, int(port)), timeout=3)
+        conn.sendall(
+            b"POST /auth/devices/pair HTTP/1.1\r\n"
+            b"Host: x\r\nContent-Length: 400\r\n\r\n"
+            b'{"name": "'  # ... and then nothing
+        )
+        conn.settimeout(3)
+        # The server must not hang waiting for the rest: within its
+        # timeout it either answers 400 or closes the connection.
+        data = conn.recv(4096)
+        conn.close()
+        assert data == b"" or b" 400 " in data
+    finally:
+        stop()
+
+
 # --- audio, and the drafts it makes -----------------------------------
 
 

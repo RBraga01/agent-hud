@@ -26,6 +26,7 @@ import json
 import os
 import secrets
 import ssl
+import threading
 import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -43,6 +44,7 @@ from .auth import (
     verify_registration,
 )
 from .drafts import DraftBook
+from .limits import RateLimiter
 from .net import LOOPBACK_HOST, is_loopback
 from .policy import Policy
 from .store import TaskStore
@@ -80,6 +82,20 @@ FEEDBACK_SUFFIX = "/feedback"
 MAX_REQUEST_BYTES = 64 * 1024
 DEFAULT_PORT = 8765
 
+# What one client may write. A steady caller stays well under the rate;
+# a burst is absorbed; a stuck retry loop is told to wait. Reads are not
+# limited. Zero for either turns write limiting off.
+DEFAULT_WRITE_RATE = 5.0
+DEFAULT_WRITE_BURST = 20.0
+# How many requests the whole server will handle at once. Past this, new
+# connections are closed rather than queued behind a slow one. Zero is no
+# cap.
+DEFAULT_MAX_CONNECTIONS = 64
+# How long any one socket operation may stall -- headers, or a body that
+# arrives a byte at a time. Zero waits forever, which is the old
+# behaviour and fine on loopback.
+DEFAULT_REQUEST_TIMEOUT = 30.0
+
 DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
 
 
@@ -89,7 +105,40 @@ class _TasksHandler(BaseHTTPRequestHandler):
     # Set by create_server.
     data_path: Path
 
+    @property
+    def timeout(self):
+        """Socket timeout for this connection, from the server's setting.
+
+        A property, not a class attribute, so two servers in one process
+        do not share it. ``StreamRequestHandler.setup`` reads it before
+        making the file wrappers, which is what bounds a slow body.
+        """
+        return getattr(self.server, "request_timeout", None)
+
     # -- who is asking --------------------------------------------------
+
+    def _client_key(self) -> str:
+        """What counts as "the same client" for rate limiting.
+
+        A paired device always carries its token, so that is the key.
+        Before pairing -- and for anything unauthenticated -- fall back
+        to the peer address.
+        """
+        token = self.headers.get(DEVICE_HEADER, "").strip()
+        if token:
+            return f"device:{token}"
+        return f"addr:{self.client_address[0]}"
+
+    def _within_rate_limit(self) -> bool:
+        """True if this write may proceed. Answers 429 itself if not."""
+        limiter = getattr(self.server, "write_limiter", None)
+        if limiter is None or limiter.check(self._client_key()):
+            return True
+        self._respond(
+            429, {"error": "too many requests, slow down"},
+            headers={"Retry-After": "1"},
+        )
+        return False
 
     def _session_token(self) -> str | None:
         raw = self.headers.get("Cookie", "")
@@ -445,6 +494,12 @@ class _TasksHandler(BaseHTTPRequestHandler):
         The path names the task; the policy decides everything else. This
         handler only reads the body safely and hands it over.
         """
+        # Every POST is a write. Rate limit before any of the work,
+        # including the sign-in and pairing ceremonies, which are exactly
+        # what a brute-force would hammer.
+        if not self._within_rate_limit():
+            return
+
         path = self.path.split("?")[0]
 
         if path.startswith(AUTH_PREFIX):
@@ -711,6 +766,10 @@ class _TasksServer(ThreadingHTTPServer):
         auth_path: Path | None = None,
         store: TaskStore | None = None,
         ssl_context: ssl.SSLContext | None = None,
+        write_rate: float = DEFAULT_WRITE_RATE,
+        write_burst: float = DEFAULT_WRITE_BURST,
+        max_connections: int = DEFAULT_MAX_CONNECTIONS,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -751,12 +810,50 @@ class _TasksServer(ThreadingHTTPServer):
                 "gateway make a self-signed certificate"
             )
 
+        # Writes are rate limited per client; reads are not. A cap on
+        # requests in flight keeps one slow caller from using every
+        # thread. A socket timeout cuts off a body that dribbles in.
+        self.write_limiter = (
+            RateLimiter(write_rate, write_burst)
+            if write_rate > 0 and write_burst > 0
+            else None
+        )
+        self._slots = (
+            threading.BoundedSemaphore(max_connections)
+            if max_connections > 0
+            else None
+        )
+        self.request_timeout = request_timeout if request_timeout > 0 else None
+
         super().__init__(address, _TasksHandler)
 
         self.scheme = "http"
         if ssl_context is not None:
             self.socket = ssl_context.wrap_socket(self.socket, server_side=True)
             self.scheme = "https"
+
+    def process_request(self, request, client_address) -> None:
+        """Take a slot before spawning the worker, or turn the request
+        away. Non-blocking: a full server closes the connection now
+        rather than parking it behind the others -- quietly, since being
+        busy is not an error."""
+        if self._slots is not None and not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            # The worker thread never started, so it will not release.
+            if self._slots is not None:
+                self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            if self._slots is not None:
+                self._slots.release()
 
 
 def create_server(
@@ -771,6 +868,10 @@ def create_server(
     auth_path: Path | None = None,
     store: TaskStore | None = None,
     ssl_context: ssl.SSLContext | None = None,
+    write_rate: float = DEFAULT_WRITE_RATE,
+    write_burst: float = DEFAULT_WRITE_BURST,
+    max_connections: int = DEFAULT_MAX_CONNECTIONS,
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
 ) -> _TasksServer:
     """Build the gateway.
 
@@ -779,6 +880,12 @@ def create_server(
         port: Pass 0 to be given a free one.
         host: What to bind. Defaults to loopback. Anything else needs
             ``require_auth`` on, or the constructor refuses it.
+        write_rate, write_burst: The per-client token bucket for writes.
+            Either at zero turns write limiting off.
+        max_connections: Requests handled at once before new connections
+            are refused. Zero is no cap.
+        request_timeout: Seconds any one socket read may stall. Zero
+            waits forever.
     """
     return _TasksServer(
         (host, port),
@@ -790,6 +897,10 @@ def create_server(
         auth_path=auth_path,
         store=store,
         ssl_context=ssl_context,
+        write_rate=write_rate,
+        write_burst=write_burst,
+        max_connections=max_connections,
+        request_timeout=request_timeout,
     )
 
 
@@ -803,6 +914,20 @@ def main() -> None:
     settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
     bind_host = os.environ.get("AGENT_HUD_HOST", LOOPBACK_HOST).strip() or LOOPBACK_HOST
+
+    def _num(name: str, default: float) -> float:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            raise SystemExit(f"{name} must be a number, got {raw!r}") from None
+
+    write_rate = _num("AGENT_HUD_WRITE_RATE", DEFAULT_WRITE_RATE)
+    write_burst = _num("AGENT_HUD_WRITE_BURST", DEFAULT_WRITE_BURST)
+    max_connections = int(_num("AGENT_HUD_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS))
+    request_timeout = _num("AGENT_HUD_REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT)
 
     # A gateway reachable off this machine has to speak TLS. Bring your own
     # certificate, or it makes one, keeps it, and prints the fingerprint to
@@ -848,6 +973,10 @@ def main() -> None:
             auth_path=settings.auth_path,
             store=store,
             ssl_context=ssl_context,
+            write_rate=write_rate,
+            write_burst=write_burst,
+            max_connections=max_connections,
+            request_timeout=request_timeout,
             sources=[
                 {"name": name, "label": name.replace("_", " ").title(), "on": True}
                 for name in settings.feeders
