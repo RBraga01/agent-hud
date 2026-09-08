@@ -92,19 +92,32 @@ The gateway checks every incoming answer against the actions **it** would have o
 
 ## The gateway is unlocked unless it is told otherwise
 
-By default it asks for nothing and binds to `127.0.0.1`. There is no host
-parameter, and two tests keep it that way, because an unlocked gateway
-that anyone can reach serves everything your agents are doing and accepts
-answers on your behalf.
+By default it asks for nothing and binds to `127.0.0.1`, and a test keeps
+that default, because an unlocked gateway that anyone can reach serves
+everything your agents are doing and accepts answers on your behalf.
 
 `AGENT_HUD_REQUIRE_AUTH=1` turns on passkeys. Then everything that reads
 your work or acts for you needs a session; only the sign-in ceremony and
 the Control's own files stay open, because otherwise there would be no
 way in.
 
-**Do not add a host argument.** Turning the lock on is what makes putting
-the gateway somewhere else defensible; it is not what does it, and that
-should stay a separate deliberate act behind TLS.
+**`AGENT_HUD_HOST` moves it off loopback, and the constructor refuses to
+do that half-way.** Bound to anything that is not loopback it raises
+unless authentication is on *and* an `ssl_context` was passed — the
+checks are in `_TasksServer.__init__`, before the socket binds, and
+`test_server.py` covers both refusals and the success case. `main()`
+builds the context: a persistent self-signed certificate under
+`~/.agent-hud/` whose fingerprint it prints to pin, or `AGENT_HUD_TLS_CERT`
+/ `AGENT_HUD_TLS_KEY` for one you supply. `stub_server/tls.py` makes and
+reads the certificate; `agent_hud/tls.py` is the client side —
+`session_for()` builds the `requests.Session` the app uses for every call.
+
+**Writes are rate limited and the server bounds its own load.** Every
+POST goes through a per-client token bucket (`stub_server/limits.py`); the
+device token is the key, the peer address before pairing. A bounded
+semaphore caps requests in flight, and each connection carries a socket
+timeout so a dribbled body cannot hold a thread. All three are on by
+default with generous values and off at zero.
 
 Three things about `auth.py` worth keeping true:
 

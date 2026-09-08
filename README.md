@@ -82,13 +82,14 @@ It keeps nothing. No task text in browser storage, no offline copy, no analytics
 
 <img src="docs/control_signin.png" alt="The Control asking for a passkey" width="300" align="right">
 
-By default the gateway asks for nothing, and binds to `127.0.0.1` and nothing else. There is no host argument and no way to ask it to listen elsewhere, because with no lock in front of it that would be indefensible — it serves whatever your feeders report and accepts answers, to anyone who can reach it.
+By default the gateway asks for nothing and binds to `127.0.0.1`, so it is reachable only from the machine it runs on. That is the only reason it can be lockless: it serves whatever your feeders report and accepts answers, to anyone who can reach it.
 
-Before putting it anywhere else, turn the lock on:
+`AGENT_HUD_HOST` moves it off loopback, and the gateway will not do that lightly. Bind it to a real address and it refuses to start unless authentication is on **and** it has a certificate to serve — it is a network service at that point, and both are the minimum for one.
 
 ```bash
 pip install ".[gateway]"                     # on the gateway
-AGENT_HUD_REQUIRE_AUTH=1 python -m stub_server.server
+AGENT_HUD_REQUIRE_AUTH=1 python -m stub_server.server         # locked, still loopback
+AGENT_HUD_REQUIRE_AUTH=1 AGENT_HUD_HOST=0.0.0.0 python -m stub_server.server   # on the network
 ```
 
 Then open Control, register the device you are holding, and that device becomes the key. After that nothing of yours is readable and nothing can be answered without it.
@@ -118,7 +119,33 @@ Signing in lasts twelve hours, so reading through the day does not mean touching
 
 The signature checking is `py_webauthn`'s, not ours. Verifying one means parsing COSE keys and getting a dozen small things right, and a subtly wrong version of that is worse than no lock at all, because it still looks like one. What is written here is the policy around it: what is stored, how long a session lasts, and what has to be proved again.
 
-Turning the lock on does not make the gateway listen anywhere else. That is still a deliberate, separate thing to arrange, behind TLS, and the lock is what makes it defensible rather than what does it.
+### On the network
+
+`AGENT_HUD_HOST=0.0.0.0` (or a specific address) makes the gateway reachable from elsewhere. It then insists on two things before it will start.
+
+**A passkey.** `AGENT_HUD_REQUIRE_AUTH=1`, as above. Without it the gateway refuses the bind rather than come up open to the network.
+
+**A certificate.** Set nothing and the gateway makes its own, keeps it at `~/.agent-hud/gateway-cert.pem`, and prints the line to pin:
+
+```
+Self-signed certificate at /home/you/.agent-hud/gateway-cert.pem
+  On the glasses, pin it:
+    AGENT_HUD_GATEWAY_FINGERPRINT=A1:B2:C3:...
+```
+
+The certificate is generated once and reused, so the fingerprint is stable across restarts. On the glasses, `AGENT_HUD_GATEWAY_FINGERPRINT` accepts exactly that one certificate — the name and the chain are not checked, because a self-signed certificate has nothing to check them against. If you already have a real certificate — a domain you own, Caddy, a Tailscale cert, mkcert — point `AGENT_HUD_TLS_CERT` and `AGENT_HUD_TLS_KEY` at it and the glasses verify it the ordinary way, or against `AGENT_HUD_GATEWAY_CA` for a private CA.
+
+**One noisy client cannot swamp it.** Every write is rate limited per client — the device token is the client, the address before pairing — so a stuck retry loop is told to wait rather than drowning out everyone else. Reads are not limited. The server also caps how many requests it handles at once and cuts off a body that arrives a byte at a time, so one slow or half-open connection cannot hold a thread. All three default on with generous values; `AGENT_HUD_WRITE_RATE`, `AGENT_HUD_MAX_CONNECTIONS` and `AGENT_HUD_REQUEST_TIMEOUT` tune them, and zero turns each off.
+
+| Setting | Where | What it does |
+|---|---|---|
+| `AGENT_HUD_HOST` | gateway | Address to bind. Default `127.0.0.1`. Anything else needs the lock and a certificate |
+| `AGENT_HUD_TLS_CERT` / `AGENT_HUD_TLS_KEY` | gateway | Your own certificate and key. Unset means a self-signed one at `~/.agent-hud/gateway-cert.pem`, made once and reused |
+| `AGENT_HUD_WRITE_RATE` / `AGENT_HUD_WRITE_BURST` | gateway | The per-client write budget. `5`/s, burst `20`. Either at `0` turns write limiting off |
+| `AGENT_HUD_MAX_CONNECTIONS` | gateway | Requests handled at once before new connections are closed. `64`. `0` for no cap |
+| `AGENT_HUD_REQUEST_TIMEOUT` | gateway | Seconds any one socket read may stall. `30`. `0` waits forever |
+| `AGENT_HUD_GATEWAY_FINGERPRINT` | glasses | SHA-256 of the one self-signed certificate to trust. From the line the gateway prints |
+| `AGENT_HUD_GATEWAY_CA` | glasses | A CA or certificate file to verify the gateway against instead |
 
 ## Speaking a reply
 
@@ -252,6 +279,8 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_OPENCODE_DB` | `~/.local/share/opencode/opencode.db` | The OpenCode SQLite database, for the `opencode` feeder |
 | `AGENT_HUD_SKIP_PATH_WORDS` | — | Extra folder names to drop when naming a project from its path |
 | `AGENT_HUD_PORT` | `8765` | Port for the development stub gateway |
+| `AGENT_HUD_HOST` | `127.0.0.1` | Address the gateway binds. Off loopback needs the lock and a certificate |
+| `AGENT_HUD_REFRESH_SECONDS` | `5` | How often the gateway re-runs its feeders into its own store |
 | `AGENT_HUD_ANIMATIONS` | on | Slide-and-fade transitions between screens. `off` for a lower-motion display |
 | `AGENT_HUD_GATEWAYS` | — | More than one paired gateway, as `Home=url;Work=url`. Leave it unset if you only have one |
 | `AGENT_HUD_ACTIVE_GATEWAY` | first listed | Which paired gateway to start on |
@@ -259,6 +288,12 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_REQUIRE_AUTH` | off | Ask for a passkey before the gateway says anything |
 | `AGENT_HUD_AUTH_FILE` | `~/.agent-hud/passkeys.json` | Where registered public keys are kept |
 | `AGENT_HUD_DEVICE_TOKEN` | — | What these glasses show a locked gateway. Paired from Control |
+| `AGENT_HUD_GATEWAY_FINGERPRINT` | — | SHA-256 of the one self-signed certificate the glasses should trust |
+| `AGENT_HUD_GATEWAY_CA` | — | A CA/certificate file to verify the gateway against instead |
+| `AGENT_HUD_TLS_CERT` / `AGENT_HUD_TLS_KEY` | — | The gateway's own certificate and key. Unset means self-signed, kept at `~/.agent-hud/gateway-cert.pem` |
+| `AGENT_HUD_WRITE_RATE` / `AGENT_HUD_WRITE_BURST` | `5` / `20` | Per-client write budget on the gateway. Either `0` disables it |
+| `AGENT_HUD_MAX_CONNECTIONS` | `64` | Requests the gateway handles at once. `0` for no cap |
+| `AGENT_HUD_REQUEST_TIMEOUT` | `30` | Seconds a gateway socket read may stall. `0` waits forever |
 
 They are read straight from the environment. Set them before running:
 
@@ -455,11 +490,11 @@ Where this is going, in the order it needs to happen.
 | **Blocked on Raven** | The credential path | Raven's public developer token and its runtime mechanism have not been released; internal testing adds credentials locally |
 | **Done** | A supported Claude signal | `claude_hook` feeder + two Claude Code hooks, replacing the transcript parser |
 | **In progress** | More sources | Codex, GitHub, OpenCode feeders and the event-shaped gateway done; Cursor and Copilot CLI still to come |
-| **Then** | A real gateway | Authentication, TLS, and reachable from outside the machine, so the glasses can see agents running at home |
+| **Done** | A real gateway | Passkey auth, device pairing, TLS with fingerprint pinning, per-client write limits, and `AGENT_HUD_HOST` to bind it to a network — so the glasses can see agents running at home |
 | **Then** | Asking out loud | Hold, ask "what needs me?", hear the answer |
 | **Later** | Acting, carefully | Approving things by eye is a much bigger decision about safety than reading is. It comes last, on purpose, and only once reading has proved itself. |
 
-**What is not built.** The gateway is a development server: no authentication, loopback only. It is fine for the simulator and unfit for anything else. Making it reachable over a network is a real piece of work, not a change of address.
+**What the gateway still is.** A single process that reads your feeders live and keeps its state in memory. It can be locked, wrapped in TLS and bound to a network, and it defends itself against one noisy client — but it is not a hardened multi-tenant service, and a real deployment holds the credentials for everything it reports on. Treat it as infrastructure you own and trust.
 
 **What has not been tested.** Agent HUD has run in Raven's simulator, not on physical Prism hardware. Eye-tracking accuracy, blink detection, the physical button and real-device performance are all unverified. The automated checks do not touch the on-glasses screen code at all — they cannot, because the Framework is not installed there.
 

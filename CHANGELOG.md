@@ -37,6 +37,23 @@ application credentials and a device, neither of which this project has yet.
   from a failure from Claude still doing background work, applies no settle
   delay, cleans up when a session ends, and never reads prompt text or
   error contents.
+- `github` feeder — pull requests awaiting your review, from `gh search`.
+  `opencode` feeder — recent OpenCode sessions from its SQLite database,
+  read-only, using the last message to tell whose turn it is.
+- The gateway keeps its own view of the list. A background sweep runs the
+  polled feeders on their own clock (`AGENT_HUD_REFRESH_SECONDS`) and
+  `POST /events` lets a source push a slice; the request path only reads
+  the snapshot, and carries its version as `X-Tasks-Version`.
+- The gateway can be reached over a network. Passkey authentication
+  (`AGENT_HUD_REQUIRE_AUTH`, `py_webauthn`), device pairing that issues
+  one hashed token for the glasses, and — behind `AGENT_HUD_HOST` — a bind
+  the constructor refuses unless both the lock and TLS are on. TLS is a
+  persistent self-signed certificate with a pinned SHA-256 fingerprint
+  (`AGENT_HUD_GATEWAY_FINGERPRINT`) or one you bring (`AGENT_HUD_TLS_CERT`
+  / `AGENT_HUD_TLS_KEY`, `AGENT_HUD_GATEWAY_CA` on the glasses). Writes are
+  rate limited per client, concurrent requests are capped, and a slow body
+  is timed out (`AGENT_HUD_WRITE_RATE`, `AGENT_HUD_MAX_CONNECTIONS`,
+  `AGENT_HUD_REQUEST_TIMEOUT`).
 
 ### Fixed
 - A gateway answering with something that is not a list of items was
@@ -65,7 +82,8 @@ application credentials and a device, neither of which this project has yet.
   released yet; current internal testing adds credentials locally. This app
   keeps them out of source control and reads them from the environment,
   which is untested on a device.
-- The gateway is a loopback-only development server with no authentication.
-  A network-reachable gateway is a separate build.
+- The gateway can be locked, wrapped in TLS and bound to a network, but it
+  is still one in-memory process holding the credentials for everything it
+  reports on — not a hardened multi-tenant service.
 - The `claude` feeder still depends on an undocumented transcript format.
   It is now a fallback — `claude_hook` is the supported path.

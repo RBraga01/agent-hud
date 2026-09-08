@@ -16,9 +16,9 @@ A display app for smart glasses, plus a small development server. It stores noth
 
 ## Where the risk actually is
 
-**The stub gateway has no authentication of any kind.** It serves whatever is in `stub_server/agents.json` to anyone who asks. It binds to `127.0.0.1` on purpose, so it is reachable only from the machine it runs on. Do not change that binding, do not expose it through a tunnel, and do not run it on a shared machine with anything private in that file. It is a development tool, not a server.
+**The gateway is unlocked by default, and that is only safe on loopback.** With `AGENT_HUD_REQUIRE_AUTH` off it serves whatever is in `stub_server/agents.json` to anyone who can reach it, so the default bind is `127.0.0.1` and nothing else. Do not tunnel that default binding anywhere, and do not run it unlocked on a shared machine with anything private in that file.
 
-**A real gateway will be a different matter.** This project does not include one. When you build one, it will hold credentials for the services it reports on, and it becomes the thing worth protecting. Nothing in this repository will protect it for you.
+**Off loopback it insists on more.** `AGENT_HUD_HOST` binds it to a network address, and the gateway refuses to start unless authentication is on (passkeys via `py_webauthn`, with paired-device tokens for the glasses) and it has a TLS certificate — self-signed with a pinned fingerprint, or one you supply. Writes are rate limited per client and the server caps concurrent requests and slow bodies. This makes a network deployment defensible; it does not make the gateway a hardened multi-tenant service. It is still one process holding the credentials for everything it reports on, and it is the thing worth protecting.
 
 **The app trusts its gateway's text.** `title` and `detail` are drawn as-is. A gateway that reports attacker-controlled text puts that text in front of the wearer. The parser rejects anything that is not a plain string, so it cannot become code, but it can still mislead. Treat a gateway as trusted infrastructure.
 
