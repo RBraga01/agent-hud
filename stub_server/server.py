@@ -38,6 +38,7 @@ from .auth import (
     verify_registration,
 )
 from .drafts import DraftBook
+from .net import LOOPBACK_HOST, is_loopback
 from .policy import Policy
 from .store import TaskStore
 from .transcription import (
@@ -72,7 +73,6 @@ FEEDBACK_SUFFIX = "/feedback"
 # The most a feedback request may be. The glasses send a few hundred
 # bytes; anything approaching this is not one of them.
 MAX_REQUEST_BYTES = 64 * 1024
-LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
@@ -727,6 +727,17 @@ class _TasksServer(ThreadingHTTPServer):
         # leaving loopback defensible; it does not do that by itself.
         self.require_auth = bool(require_auth)
         self.auth = AuthStore(path=auth_path)
+
+        # Off-loopback is a network surface. It is only allowed once the
+        # gateway is locked; TLS is demanded separately, where the socket
+        # is wrapped.
+        if not is_loopback(address[0]) and not self.require_auth:
+            raise ValueError(
+                f"refusing to bind {address[0]!r}: a gateway reachable off "
+                "this machine must have authentication on "
+                "(AGENT_HUD_REQUIRE_AUTH=1)"
+            )
+
         super().__init__(address, _TasksHandler)
 
 
@@ -734,6 +745,7 @@ def create_server(
     provider: Callable[[], list],
     port: int = DEFAULT_PORT,
     *,
+    host: str = LOOPBACK_HOST,
     gateway_name: str = "this machine",
     sources: list[dict] | None = None,
     transcriber: str = "",
@@ -741,14 +753,16 @@ def create_server(
     auth_path: Path | None = None,
     store: TaskStore | None = None,
 ) -> _TasksServer:
-    """Build a server bound to loopback.
+    """Build the gateway.
 
     Args:
         provider: Called on every request; returns the current list.
         port: Pass 0 to be given a free one.
+        host: What to bind. Defaults to loopback. Anything else needs
+            ``require_auth`` on, or the constructor refuses it.
     """
     return _TasksServer(
-        (LOOPBACK_HOST, port),
+        (host, port),
         provider,
         gateway_name=gateway_name,
         sources=sources,
@@ -768,6 +782,7 @@ def main() -> None:
 
     settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
+    bind_host = os.environ.get("AGENT_HUD_HOST", LOOPBACK_HOST).strip() or LOOPBACK_HOST
 
     # The gateway keeps its own view of the list. A background sweep runs
     # the polled feeders on their own clock; POST /events lets a source
@@ -781,22 +796,32 @@ def main() -> None:
     )
     refresher.start()
 
-    server = create_server(
-        store.snapshot,
-        port=port,
-        gateway_name=settings.active_gateway.name,
-        transcriber=settings.transcriber,
-        require_auth=settings.require_auth,
-        auth_path=settings.auth_path,
-        store=store,
-        sources=[
-            {"name": name, "label": name.replace("_", " ").title(), "on": True}
-            for name in settings.feeders
-        ],
-    )
+    try:
+        server = create_server(
+            store.snapshot,
+            port=port,
+            host=bind_host,
+            gateway_name=settings.active_gateway.name,
+            transcriber=settings.transcriber,
+            require_auth=settings.require_auth,
+            auth_path=settings.auth_path,
+            store=store,
+            sources=[
+                {"name": name, "label": name.replace("_", " ").title(), "on": True}
+                for name in settings.feeders
+            ],
+        )
+    except ValueError as exc:
+        refresher.stop()
+        raise SystemExit(str(exc)) from exc
+
     host, bound_port = server.server_address[:2]
-    print(f"Stub gateway on http://{host}:{bound_port}{TASKS_PATH}")
-    print(f"Control on      http://{host}:{bound_port}{CONTROL_PREFIX}")
+    scheme = "http"
+    print(f"Stub gateway on {scheme}://{host}:{bound_port}{TASKS_PATH}")
+    print(f"Control on      {scheme}://{host}:{bound_port}{CONTROL_PREFIX}")
+    if not is_loopback(bind_host):
+        print("Reachable off this machine. Authentication is on; "
+              "pair a device from Control.")
     print(f"Feeders: {', '.join(settings.feeders)}  (sweep every "
           f"{settings.refresh_seconds:g}s; push at {EVENTS_PATH})")
     if "file" in settings.feeders:

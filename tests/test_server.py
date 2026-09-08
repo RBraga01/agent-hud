@@ -414,16 +414,41 @@ def test_it_binds_only_to_loopback():
         server.server_close()
 
 
-def test_there_is_no_way_to_ask_it_to_listen_elsewhere():
+def test_it_binds_loopback_by_default():
     import inspect
 
+    from stub_server.net import LOOPBACK_HOST
     from stub_server.server import create_server
 
-    parameters = set(inspect.signature(create_server).parameters)
+    host_param = inspect.signature(create_server).parameters["host"]
+    assert host_param.default == LOOPBACK_HOST
 
-    assert "host" not in parameters
-    assert "address" not in parameters
-    assert "bind" not in parameters
+
+def test_it_refuses_to_bind_off_loopback_without_the_lock():
+    from stub_server.server import create_server
+
+    with pytest.raises(ValueError, match="authentication"):
+        create_server(list, port=0, host="0.0.0.0")
+
+
+def test_it_will_bind_off_loopback_once_the_lock_is_on():
+    from stub_server.server import create_server
+
+    server = create_server(list, port=0, host="0.0.0.0", require_auth=True)
+    try:
+        # bound, and to something that is not loopback
+        assert server.server_address[0] == "0.0.0.0"
+    finally:
+        server.server_close()
+
+
+def test_a_lan_address_it_cannot_bind_still_gets_the_lock_check_first():
+    """The auth check happens before the bind, so a bad host with the lock
+    off is refused for the right reason, not a socket error."""
+    from stub_server.server import create_server
+
+    with pytest.raises(ValueError, match="authentication"):
+        create_server(list, port=0, host="10.255.255.1")
 
 
 # --- audio, and the drafts it makes -----------------------------------
