@@ -32,7 +32,10 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        # dev for the tools, gateway for webauthn and cryptography: the
+        # off-loopback pairing and TLS tests are real integration tests and
+        # need the real libraries. Nothing here reaches the glasses.
+        run: pip install -e ".[dev,gateway]"
 
       - name: Lint
         run: ruff check .

@@ -4,6 +4,7 @@ It asks its provider for the current list on every request, so whatever the
 feeders return is what the glasses see, with nothing cached in between.
 """
 
+import importlib.util
 import json
 import threading
 
@@ -11,6 +12,13 @@ import pytest
 import requests
 
 from stub_server.server import TASKS_PATH, create_server
+
+# The self-signed certificate needs cryptography, which is a gateway extra.
+# Without it the off-loopback TLS tests skip rather than error.
+requires_crypto = pytest.mark.skipif(
+    importlib.util.find_spec("cryptography") is None,
+    reason="cryptography is not installed (pip install -e '.[gateway]')",
+)
 
 SAMPLE = [
     {"id": "a", "title": "One", "detail": "first", "needs_you": True},
@@ -440,6 +448,7 @@ def test_it_refuses_to_bind_off_loopback_with_the_lock_but_no_tls(tmp_path):
         create_server(list, port=0, host="0.0.0.0", require_auth=True)
 
 
+@requires_crypto
 def test_it_will_bind_off_loopback_with_the_lock_and_tls(tmp_path):
     from stub_server.server import create_server
     from stub_server.tls import ensure_cert, server_context
@@ -498,6 +507,7 @@ def _serve_tls(provider, *, ssl_context):
     return f"https://127.0.0.1:{port}", stop
 
 
+@requires_crypto
 def test_a_client_pinned_to_the_fingerprint_reaches_the_gateway(tmp_path):
     from agent_hud.tls import session_for
     from stub_server.tls import ensure_cert, server_context
@@ -513,6 +523,7 @@ def test_a_client_pinned_to_the_fingerprint_reaches_the_gateway(tmp_path):
         stop()
 
 
+@requires_crypto
 def test_the_wrong_fingerprint_is_refused(tmp_path):
     from agent_hud.tls import session_for
     from stub_server.tls import ensure_cert, server_context
@@ -528,6 +539,7 @@ def test_the_wrong_fingerprint_is_refused(tmp_path):
         stop()
 
 
+@requires_crypto
 def test_an_unpinned_client_will_not_trust_the_self_signed_certificate(tmp_path):
     from stub_server.tls import ensure_cert, server_context
 
@@ -540,6 +552,7 @@ def test_an_unpinned_client_will_not_trust_the_self_signed_certificate(tmp_path)
         stop()
 
 
+@requires_crypto
 def test_bring_your_own_certificate_is_trusted_by_its_ca_file(tmp_path):
     """A certificate the test made itself, handed to the gateway as BYO
     and to the client as the CA to verify against."""
