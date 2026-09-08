@@ -159,6 +159,8 @@ def send_feedback(
     feedback: Feedback,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     device_token: str = "",
+    *,
+    session: requests.Session | None = None,
 ) -> SendResult:
     """Send one answer. Never raises.
 
@@ -180,9 +182,10 @@ def send_feedback(
         )
 
     url = f"{base_url.rstrip('/')}/tasks/{feedback.task_id}/feedback"
+    http = session or requests
 
     try:
-        response = requests.post(
+        response = http.post(
             url,
             json=feedback.body(),
             timeout=timeout,

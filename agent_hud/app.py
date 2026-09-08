@@ -67,6 +67,7 @@ from .screens.audio import build_listening, build_processing, build_review
 from .screens.pending import PendingMarker
 from .screens.unavailable import build_unavailable
 from .tasks import Task, find_task, needs_you_count
+from .tls import session_for
 from .transitions import (
     APP_SIZE,
     IDLE_DOT_SIZE,
@@ -152,6 +153,20 @@ class AgentHud(RavenApp):
         self._fetch = fetch or fetch_tasks
         self._fetch_settings = fetch_settings_fn or fetch_settings
         self._send = send or send_feedback
+
+        # One session for every call to the gateway, so an https gateway
+        # trusted by a pinned fingerprint or a private CA is verified the
+        # same way each time. Left unset -- and the module-level requests
+        # used -- when nothing needs pinning, which is plain http or a
+        # publicly-trusted certificate.
+        _session = None
+        if self._settings.gateway_fingerprint or self._settings.gateway_ca:
+            _session = session_for(
+                fingerprint=self._settings.gateway_fingerprint,
+                ca=self._settings.gateway_ca,
+            )
+        self._session = _session
+        self._http_kw = {"session": _session} if _session is not None else {}
         self._transcribe = transcribe or self._transcribe_via_gateway
         self._gaze = gaze or _default_gaze
         self._clock = clock or time.monotonic
@@ -541,12 +556,17 @@ class AgentHud(RavenApp):
         """
         token = self._settings.device_token
         settings = self._fetch_settings(
-            self.gateway.base, DEFAULT_TIMEOUT_SECONDS, token
+            self.gateway.base, DEFAULT_TIMEOUT_SECONDS, token, **self._http_kw
         )
         if settings is not None:
             self.apply_preferences(settings)
         self.apply(
-            self._fetch(self.gateway.url, DEFAULT_TIMEOUT_SECONDS, token)
+            self._fetch(
+                self.gateway.url,
+                DEFAULT_TIMEOUT_SECONDS,
+                token,
+                **self._http_kw,
+            )
         )
 
     # -- drawing --------------------------------------------------------
@@ -881,12 +901,14 @@ class AgentHud(RavenApp):
         base = self.gateway.base
 
         def work() -> None:
-            self._pending = self._fetch(url, DEFAULT_TIMEOUT_SECONDS, token)
+            self._pending = self._fetch(
+                url, DEFAULT_TIMEOUT_SECONDS, token, **self._http_kw
+            )
             # Fetched on the same tick but kept apart: a settings endpoint
             # that is missing or slow must never be able to empty the
             # list, so its failure is a None nobody acts on.
             self._pending_settings = self._fetch_settings(
-                base, DEFAULT_TIMEOUT_SECONDS, token
+                base, DEFAULT_TIMEOUT_SECONDS, token, **self._http_kw
             )
 
         # The completion callback takes no arguments and the worker's return
@@ -1075,6 +1097,7 @@ class AgentHud(RavenApp):
                 outgoing,
                 DEFAULT_TIMEOUT_SECONDS,
                 self._settings.device_token,
+                **self._http_kw,
             )
 
         self._async.run(work, on_complete=self._apply_send_result)

@@ -431,13 +431,30 @@ def test_it_refuses_to_bind_off_loopback_without_the_lock():
         create_server(list, port=0, host="0.0.0.0")
 
 
-def test_it_will_bind_off_loopback_once_the_lock_is_on():
+def test_it_refuses_to_bind_off_loopback_with_the_lock_but_no_tls(tmp_path):
+    """Auth alone is not enough once it is a network surface: without a
+    certificate the connection would be in the clear."""
     from stub_server.server import create_server
 
-    server = create_server(list, port=0, host="0.0.0.0", require_auth=True)
+    with pytest.raises(ValueError, match="TLS"):
+        create_server(list, port=0, host="0.0.0.0", require_auth=True)
+
+
+def test_it_will_bind_off_loopback_with_the_lock_and_tls(tmp_path):
+    from stub_server.server import create_server
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path, hosts=["0.0.0.0"])
+    server = create_server(
+        list,
+        port=0,
+        host="0.0.0.0",
+        require_auth=True,
+        ssl_context=server_context(info),
+    )
     try:
-        # bound, and to something that is not loopback
         assert server.server_address[0] == "0.0.0.0"
+        assert server.scheme == "https"
     finally:
         server.server_close()
 
@@ -449,6 +466,98 @@ def test_a_lan_address_it_cannot_bind_still_gets_the_lock_check_first():
 
     with pytest.raises(ValueError, match="authentication"):
         create_server(list, port=0, host="10.255.255.1")
+
+
+# --- TLS, end to end -------------------------------------------------------
+
+
+def _serve_tls(provider, *, ssl_context):
+    """A locked, TLS-wrapped gateway on a free port. Bound to loopback so
+    the test can reach it; the wrapping is what is under test."""
+    from stub_server.server import create_server
+
+    server = create_server(
+        provider,
+        port=0,
+        host="127.0.0.1",
+        require_auth=True,
+        ssl_context=ssl_context,
+    )
+    # A client that rejects the pin aborts mid-handshake; that is the
+    # test passing, not a server fault, so do not let it print a stack.
+    server.handle_error = lambda request, client_address: None
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+
+    def stop():
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    return f"https://127.0.0.1:{port}", stop
+
+
+def test_a_client_pinned_to_the_fingerprint_reaches_the_gateway(tmp_path):
+    from agent_hud.tls import session_for
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path)
+    base, stop = _serve_tls(lambda: list(SAMPLE), ssl_context=server_context(info))
+    try:
+        session = session_for(fingerprint=info.fingerprint)
+        reply = session.get(f"{base}/auth/state", timeout=5)
+        assert reply.status_code == 200
+        assert reply.json()["required"] is True
+    finally:
+        stop()
+
+
+def test_the_wrong_fingerprint_is_refused(tmp_path):
+    from agent_hud.tls import session_for
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path)
+    base, stop = _serve_tls(lambda: list(SAMPLE), ssl_context=server_context(info))
+    try:
+        wrong = "AA:" * 31 + "AA"
+        session = session_for(fingerprint=wrong)
+        with pytest.raises(requests.exceptions.SSLError):
+            session.get(f"{base}/auth/state", timeout=5)
+    finally:
+        stop()
+
+
+def test_an_unpinned_client_will_not_trust_the_self_signed_certificate(tmp_path):
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path)
+    base, stop = _serve_tls(lambda: list(SAMPLE), ssl_context=server_context(info))
+    try:
+        with pytest.raises(requests.exceptions.SSLError):
+            requests.get(f"{base}/auth/state", timeout=5)
+    finally:
+        stop()
+
+
+def test_bring_your_own_certificate_is_trusted_by_its_ca_file(tmp_path):
+    """A certificate the test made itself, handed to the gateway as BYO
+    and to the client as the CA to verify against."""
+    from agent_hud.tls import session_for
+    from stub_server.tls import ensure_cert, server_context
+
+    made = ensure_cert(store_dir=tmp_path)  # self-signed: it is its own CA
+    info = ensure_cert(
+        cert_path=made.certfile, key_path=made.keyfile, store_dir=tmp_path
+    )
+    assert info.self_signed is False
+    base, stop = _serve_tls(lambda: list(SAMPLE), ssl_context=server_context(info))
+    try:
+        session = session_for(ca=str(made.certfile))
+        reply = session.get(f"{base}/auth/state", timeout=5)
+        assert reply.status_code == 200
+    finally:
+        stop()
 
 
 # --- audio, and the drafts it makes -----------------------------------

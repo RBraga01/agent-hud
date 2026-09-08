@@ -11,9 +11,13 @@ back at ``POST /tasks/{id}/feedback``. What it is
 willing to accept lives in ``policy.py``, deliberately apart from the
 plumbing here.
 
-Bound to the loopback address on purpose. It serves whatever the feeders
-return, and accepts answers, with no authentication at all, so it must
-never be reachable from a network.
+Loopback by default, and on loopback it needs no authentication because
+nothing off the machine can reach it. Set ``AGENT_HUD_HOST`` to a real
+address and it becomes a network gateway: the constructor then refuses to
+start without authentication on (``AGENT_HUD_REQUIRE_AUTH=1``) and without
+TLS -- bring your own certificate with ``AGENT_HUD_TLS_CERT`` /
+``AGENT_HUD_TLS_KEY``, or let it make and reuse a self-signed one and pin
+the fingerprint it prints.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import ssl
 import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -705,6 +710,7 @@ class _TasksServer(ThreadingHTTPServer):
         require_auth: bool = False,
         auth_path: Path | None = None,
         store: TaskStore | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -728,17 +734,29 @@ class _TasksServer(ThreadingHTTPServer):
         self.require_auth = bool(require_auth)
         self.auth = AuthStore(path=auth_path)
 
-        # Off-loopback is a network surface. It is only allowed once the
-        # gateway is locked; TLS is demanded separately, where the socket
-        # is wrapped.
-        if not is_loopback(address[0]) and not self.require_auth:
+        # Off-loopback is a network surface, and only allowed once the
+        # gateway is both locked and wrapped in TLS. On loopback neither
+        # is required and plain http is fine.
+        self._exposed = not is_loopback(address[0])
+        if self._exposed and not self.require_auth:
             raise ValueError(
                 f"refusing to bind {address[0]!r}: a gateway reachable off "
                 "this machine must have authentication on "
                 "(AGENT_HUD_REQUIRE_AUTH=1)"
             )
+        if self._exposed and ssl_context is None:
+            raise ValueError(
+                f"refusing to bind {address[0]!r} without TLS: set "
+                "AGENT_HUD_TLS_CERT and AGENT_HUD_TLS_KEY, or let the "
+                "gateway make a self-signed certificate"
+            )
 
         super().__init__(address, _TasksHandler)
+
+        self.scheme = "http"
+        if ssl_context is not None:
+            self.socket = ssl_context.wrap_socket(self.socket, server_side=True)
+            self.scheme = "https"
 
 
 def create_server(
@@ -752,6 +770,7 @@ def create_server(
     require_auth: bool = False,
     auth_path: Path | None = None,
     store: TaskStore | None = None,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> _TasksServer:
     """Build the gateway.
 
@@ -770,6 +789,7 @@ def create_server(
         require_auth=require_auth,
         auth_path=auth_path,
         store=store,
+        ssl_context=ssl_context,
     )
 
 
@@ -783,6 +803,27 @@ def main() -> None:
     settings = load_settings()
     port = int(os.environ.get("AGENT_HUD_PORT", DEFAULT_PORT))
     bind_host = os.environ.get("AGENT_HUD_HOST", LOOPBACK_HOST).strip() or LOOPBACK_HOST
+
+    # A gateway reachable off this machine has to speak TLS. Bring your own
+    # certificate, or it makes one, keeps it, and prints the fingerprint to
+    # pin. On loopback TLS is optional and only set up if a cert is given.
+    cert_info = None
+    ssl_context = None
+    tls_cert = os.environ.get("AGENT_HUD_TLS_CERT", "").strip()
+    tls_key = os.environ.get("AGENT_HUD_TLS_KEY", "").strip()
+    if not is_loopback(bind_host) or (tls_cert and tls_key):
+        from .tls import ensure_cert, server_context
+
+        try:
+            cert_info = ensure_cert(
+                cert_path=tls_cert or None,
+                key_path=tls_key or None,
+                store_dir=Path.home() / ".agent-hud",
+                hosts=[bind_host],
+            )
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
+        ssl_context = server_context(cert_info)
 
     # The gateway keeps its own view of the list. A background sweep runs
     # the polled feeders on their own clock; POST /events lets a source
@@ -806,6 +847,7 @@ def main() -> None:
             require_auth=settings.require_auth,
             auth_path=settings.auth_path,
             store=store,
+            ssl_context=ssl_context,
             sources=[
                 {"name": name, "label": name.replace("_", " ").title(), "on": True}
                 for name in settings.feeders
@@ -816,12 +858,21 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
 
     host, bound_port = server.server_address[:2]
-    scheme = "http"
+    scheme = server.scheme
     print(f"Stub gateway on {scheme}://{host}:{bound_port}{TASKS_PATH}")
     print(f"Control on      {scheme}://{host}:{bound_port}{CONTROL_PREFIX}")
     if not is_loopback(bind_host):
         print("Reachable off this machine. Authentication is on; "
               "pair a device from Control.")
+    if cert_info is not None and cert_info.self_signed:
+        print(
+            "Self-signed certificate at "
+            f"{cert_info.certfile}\n"
+            "  On the glasses, pin it:\n"
+            f"    AGENT_HUD_GATEWAY_FINGERPRINT={cert_info.fingerprint}"
+        )
+    elif cert_info is not None:
+        print(f"Serving your certificate ({cert_info.certfile}).")
     print(f"Feeders: {', '.join(settings.feeders)}  (sweep every "
           f"{settings.refresh_seconds:g}s; push at {EVENTS_PATH})")
     if "file" in settings.feeders:

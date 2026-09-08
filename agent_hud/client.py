@@ -61,6 +61,8 @@ def fetch_settings(
     base_url: str,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     device_token: str = "",
+    *,
+    session: requests.Session | None = None,
 ) -> dict | None:
     """Ask the gateway what the wearer has chosen.
 
@@ -75,8 +77,9 @@ def fetch_settings(
     keeping them apart is what guarantees that.
     """
     url = f"{base_url.rstrip('/')}{SETTINGS_PATH}"
+    http = session or requests
     try:
-        response = requests.get(
+        response = http.get(
             url,
             timeout=timeout,
             headers={DEVICE_HEADER: device_token} if device_token else {},
@@ -103,6 +106,8 @@ def fetch_tasks(
     url: str,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     device_token: str = "",
+    *,
+    session: requests.Session | None = None,
 ) -> FetchResult:
     """Ask the gateway for the current list.
 
@@ -119,8 +124,9 @@ def fetch_tasks(
     A response larger than ``MAX_RESPONSE_BYTES`` is refused unread, as
     another way the gateway can be unusable.
     """
+    http = session or requests
     try:
-        response = requests.get(
+        response = http.get(
             url,
             timeout=timeout,
             stream=True,

@@ -39,6 +39,8 @@ _TRANSCRIBER_VAR = "AGENT_HUD_TRANSCRIBER"
 _REQUIRE_AUTH_VAR = "AGENT_HUD_REQUIRE_AUTH"
 _AUTH_PATH_VAR = "AGENT_HUD_AUTH_FILE"
 _DEVICE_TOKEN_VAR = "AGENT_HUD_DEVICE_TOKEN"
+_GATEWAY_FINGERPRINT_VAR = "AGENT_HUD_GATEWAY_FINGERPRINT"
+_GATEWAY_CA_VAR = "AGENT_HUD_GATEWAY_CA"
 
 # Invented data only. The safe default: no accounts, no personal data, and
 # it works for anyone who clones this.
@@ -101,6 +103,12 @@ class Settings:
     auth_path: Path = field(
         default_factory=lambda: Path.home() / ".agent-hud" / "passkeys.json"
     )
+    # How to trust a gateway reached over https. A SHA-256 fingerprint
+    # pins one self-signed certificate; a CA file trusts a private CA.
+    # Empty means ordinary verification against the system trust store,
+    # which is right for a publicly-trusted certificate or plain http.
+    gateway_fingerprint: str = ""
+    gateway_ca: str = ""
 
     @property
     def active_gateway(self) -> Gateway:
@@ -288,4 +296,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
             source.get(_AUTH_PATH_VAR, "").strip()
             or (Path.home() / ".agent-hud" / "passkeys.json")
         ),
+        gateway_fingerprint=source.get(_GATEWAY_FINGERPRINT_VAR, "").strip(),
+        gateway_ca=source.get(_GATEWAY_CA_VAR, "").strip(),
     )
