@@ -127,12 +127,16 @@ class _TasksHandler(BaseHTTPRequestHandler):
     def _client_key(self) -> str:
         """What counts as "the same client" for rate limiting.
 
-        A paired device always carries its token, so that is the key.
-        Before pairing -- and for anything unauthenticated -- fall back
-        to the peer address.
+        A *recognized* paired device is keyed by its token. Everything
+        else -- no token, an invented one, one that was revoked -- shares
+        its peer address's budget instead. The token has to be looked up,
+        not merely present: otherwise a caller manufactures a fresh
+        budget on every request just by inventing a new header value,
+        which is not a client, it is the same client refusing to be
+        counted.
         """
         token = self.headers.get(DEVICE_HEADER, "").strip()
-        if token:
+        if token and self.server.auth.device_for(token) is not None:
             return f"device:{token}"
         return f"addr:{self.client_address[0]}"
 

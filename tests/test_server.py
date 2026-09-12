@@ -653,16 +653,43 @@ def test_reads_are_never_rate_limited():
         stop()
 
 
-def test_each_client_has_its_own_write_budget():
-    base, _, stop = _serve_limited(write_rate=1.0, write_burst=2)
+def test_each_paired_device_has_its_own_write_budget():
+    """A recognized device's budget is its own -- keyed on a token the
+    gateway actually issued, not merely one a caller presents."""
+    base, server, stop = _serve_limited(write_rate=1.0, write_burst=2)
     try:
-        a = {"X-Agent-Hud-Device": "device-a"}
-        b = {"X-Agent-Hud-Device": "device-b"}
+        _, token_a = server.auth.pair_device("device-a")
+        _, token_b = server.auth.pair_device("device-b")
+        a = {"X-Agent-Hud-Device": token_a}
+        b = {"X-Agent-Hud-Device": token_b}
+
         assert [_pair_post(base, a).status_code for _ in range(3)] == [
             200, 200, 429,
         ]
-        # b's bucket is untouched
+        # b's bucket is untouched by a's spending
         assert _pair_post(base, b).status_code == 200
+    finally:
+        stop()
+
+
+def test_an_unrecognized_device_header_does_not_grant_a_fresh_budget():
+    """A caller cannot reset its rate limit by inventing a new device
+    header on every request. Only a token the gateway issued gets its
+    own bucket; anything else -- including a flood of distinct,
+    never-paired values -- shares the peer address's budget."""
+    base, _, stop = _serve_limited(write_rate=1.0, write_burst=2)
+    try:
+        # Spend the address bucket's burst with no header at all.
+        assert [_pair_post(base).status_code for _ in range(2)] == [200, 200]
+
+        # A flood of distinct, invented device headers from the same
+        # address gets nothing extra: every one lands on that same,
+        # already-spent bucket.
+        codes = [
+            _pair_post(base, {"X-Agent-Hud-Device": f"invented-{i}"}).status_code
+            for i in range(10)
+        ]
+        assert codes == [429] * 10
     finally:
         stop()
 
