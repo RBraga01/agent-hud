@@ -33,8 +33,8 @@ const state = {
 
 // --- talking to the gateway -------------------------------------------
 
-async function getJSON(path) {
-  const response = await fetch(path, { cache: "no-store" });
+async function getJSON(path, headers = {}) {
+  const response = await fetch(path, { cache: "no-store", headers });
   if (!response.ok) throw new Error(`${path} returned ${response.status}`);
   return response.json();
 }
@@ -54,10 +54,10 @@ async function post(path, body) {
   return { status: response.status, payload };
 }
 
-async function postJSON(path, body) {
+async function postJSON(path, body, headers = {}) {
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   let payload = {};
@@ -132,17 +132,29 @@ function decodeOptions(options) {
   return decoded;
 }
 
-async function registerPasskey() {
+const SETUP_TOKEN_HEADER = "X-Agent-Hud-Setup-Token";
+
+/* `setupToken` is only needed once: a gateway reachable from a network
+ * with no passkey registered yet asks for its one-time console token,
+ * so a network attacker cannot win the race to register the first key
+ * before the owner does. On loopback, or once a passkey exists, it is
+ * unused and this is exactly the plain registration flow it always was. */
+async function registerPasskey(setupToken) {
   authSay("Follow the prompt on your device\u2026");
+  const headers = setupToken ? { [SETUP_TOKEN_HEADER]: setupToken } : {};
   try {
-    const options = await getJSON("/auth/register/options");
+    const options = await getJSON("/auth/register/options", headers);
     const credential = await navigator.credentials.create({
       publicKey: decodeOptions(options),
     });
-    const result = await postJSON("/auth/register", {
-      credential: credentialToJSON(credential),
-      name: navigator.platform || "this device",
-    });
+    const result = await postJSON(
+      "/auth/register",
+      {
+        credential: credentialToJSON(credential),
+        name: navigator.platform || "this device",
+      },
+      headers,
+    );
     if (result.status !== 200) {
       authSay(result.payload.error || "That did not work.");
       return;
@@ -195,6 +207,15 @@ function renderAuth() {
   if (!needed) return;
 
   const buttons = $("auth-buttons");
+
+  // A poll tick must not erase a setup token the wearer is mid-typing,
+  // the same reason the draft textarea checks document.activeElement
+  // before refresh() is allowed to touch it.
+  const tokenInput = buttons.querySelector('[data-role="setup-token"]');
+  if (tokenInput && (document.activeElement === tokenInput || tokenInput.value)) {
+    return;
+  }
+
   buttons.innerHTML = "";
 
   if (!auth.available) {
@@ -206,12 +227,31 @@ function renderAuth() {
   }
 
   if (!auth.registered) {
+    if (auth.setup_token_required) {
+      authSay(
+        "This gateway is reachable from a network and has no passkey " +
+          "yet. Enter the one-time setup token shown in the console it " +
+          "was started from, then register this device.",
+      );
+      const input = el("input");
+      input.type = "password";
+      input.placeholder = "Setup token";
+      input.autocomplete = "off";
+      input.setAttribute("aria-label", "Setup token");
+      input.setAttribute("data-role", "setup-token");
+      const register = el("button", "primary", "Register this device");
+      register.addEventListener("click", () => {
+        registerPasskey(input.value.trim());
+      });
+      buttons.append(input, register);
+      return;
+    }
     authSay(
       "No device is registered yet. Register this one to be the key for " +
         "this gateway. Nothing is typed and no password is stored.",
     );
     const register = el("button", "primary", "Register this device");
-    register.addEventListener("click", registerPasskey);
+    register.addEventListener("click", () => registerPasskey());
     buttons.append(register);
     return;
   }

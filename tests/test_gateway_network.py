@@ -18,7 +18,7 @@ pytest.importorskip("cryptography")
 from agent_hud.client import fetch_tasks
 from agent_hud.feedback import Feedback, SendOutcome, send_feedback
 from agent_hud.tls import session_for
-from stub_server.server import create_server
+from stub_server.server import SETUP_TOKEN_HEADER, create_server
 from stub_server.tls import ensure_cert, server_context
 
 TASK = {
@@ -47,17 +47,29 @@ class NetworkGateway:
     def pinned(self):
         return session_for(fingerprint=self.fingerprint)
 
-    def pair(self, name: str = "Raven Prism", *, session=None):
+    def pair(self, name: str = "Raven Prism", *, session=None, setup_token=True):
+        """Pair a device. ``setup_token`` presents this server's
+        one-time setup token by default -- the correct way an owner
+        completes first-run bootstrap over the network; pass False to
+        simulate a caller that does not have it."""
         http = session or self.pinned()
+        headers = {}
+        if setup_token and self.server.setup_token is not None:
+            headers[SETUP_TOKEN_HEADER] = self.server.setup_token
         reply = http.post(
-            f"{self.base}/auth/devices/pair", json={"name": name}, timeout=5
+            f"{self.base}/auth/devices/pair", json={"name": name},
+            headers=headers, timeout=5,
         )
         return reply
 
-    def revoke(self, device_id: str, *, session=None):
+    def revoke(self, device_id: str, *, session=None, setup_token=True):
         http = session or self.pinned()
+        headers = {}
+        if setup_token and self.server.setup_token is not None:
+            headers[SETUP_TOKEN_HEADER] = self.server.setup_token
         return http.post(
-            f"{self.base}/auth/devices/revoke/{device_id}", timeout=5
+            f"{self.base}/auth/devices/revoke/{device_id}",
+            headers=headers, timeout=5,
         )
 
 

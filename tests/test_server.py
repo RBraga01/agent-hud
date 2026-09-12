@@ -11,7 +11,7 @@ import threading
 import pytest
 import requests
 
-from stub_server.server import TASKS_PATH, create_server
+from stub_server.server import SETUP_TOKEN_HEADER, TASKS_PATH, create_server
 
 # The self-signed certificate needs cryptography, which is a gateway extra.
 # Without it the off-loopback TLS tests skip rather than error.
@@ -475,6 +475,64 @@ def test_a_lan_address_it_cannot_bind_still_gets_the_lock_check_first():
 
     with pytest.raises(ValueError, match="authentication"):
         create_server(list, port=0, host="10.255.255.1")
+
+
+# --- the WebAuthn origin a client cannot simply claim -------------------
+
+
+def test_the_origin_follows_the_real_transport_by_default():
+    from stub_server.server import _resolve_rp
+
+    name, origin = _resolve_rp(
+        "gateway.example:8765",
+        scheme="https",
+        trust_proxy_headers=False,
+        forwarded_proto=None,
+    )
+
+    assert name == "gateway.example"
+    assert origin == "https://gateway.example:8765"
+
+
+def test_a_forwarded_proto_header_is_ignored_without_the_opt_in():
+    from stub_server.server import _resolve_rp
+
+    _, origin = _resolve_rp(
+        "gateway.example",
+        scheme="http",
+        trust_proxy_headers=False,
+        forwarded_proto="https",
+    )
+
+    # The connection was plain http; a client claiming otherwise does
+    # not get to change what the ceremony believes.
+    assert origin == "http://gateway.example"
+
+
+def test_a_forwarded_proto_header_is_honoured_once_a_proxy_is_declared():
+    from stub_server.server import _resolve_rp
+
+    _, origin = _resolve_rp(
+        "gateway.example",
+        scheme="http",
+        trust_proxy_headers=True,
+        forwarded_proto="https",
+    )
+
+    assert origin == "https://gateway.example"
+
+
+def test_a_forwarded_proto_of_http_does_not_downgrade_an_https_transport():
+    from stub_server.server import _resolve_rp
+
+    _, origin = _resolve_rp(
+        "gateway.example",
+        scheme="https",
+        trust_proxy_headers=True,
+        forwarded_proto="http",
+    )
+
+    assert origin == "https://gateway.example"
 
 
 # --- TLS, end to end -------------------------------------------------------
@@ -1165,6 +1223,128 @@ def test_the_first_passkey_can_be_registered_without_one(locked_gateway):
         assert response.json()["challenge"]
     else:
         assert response.status_code == 501
+
+
+# --- the same opening, but exposed to a network -------------------------
+#
+# Loopback trusts the opening above because nothing off the machine can
+# reach it. Exposed, a network attacker could race the owner to register
+# the only passkey or pair the only device, so the same opening also
+# needs a one-time setup token out here.
+
+
+@pytest.fixture
+def exposed_locked_gateway(tmp_path):
+    """A gateway started the way a network deployment would be: off
+    loopback, locked, TLS, and -- since no passkey is registered yet --
+    carrying a one-time setup token."""
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path / "cert")
+    server = create_server(
+        lambda: [dict(TASK)],
+        port=0,
+        host="0.0.0.0",
+        require_auth=True,
+        auth_path=tmp_path / "passkeys.json",
+        ssl_context=server_context(info),
+    )
+    server.handle_error = lambda request, client_address: None
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"https://127.0.0.1:{server.server_address[1]}"
+
+    yield base, server, info
+
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+@requires_crypto
+def test_a_setup_token_exists_once_exposed_with_no_passkey_yet(
+    exposed_locked_gateway,
+):
+    _, server, _ = exposed_locked_gateway
+
+    assert server.setup_token is not None
+
+
+@requires_crypto
+def test_registering_the_first_passkey_when_exposed_needs_the_setup_token(
+    exposed_locked_gateway,
+):
+    from agent_hud.tls import session_for
+    from stub_server.auth import library_available
+
+    base, server, info = exposed_locked_gateway
+    session = session_for(fingerprint=info.fingerprint)
+
+    without = session.get(f"{base}/auth/register/options", timeout=5)
+    assert without.status_code == 403
+
+    with_token = session.get(
+        f"{base}/auth/register/options",
+        headers={SETUP_TOKEN_HEADER: server.setup_token},
+        timeout=5,
+    )
+    assert with_token.status_code == (200 if library_available() else 501)
+
+
+@requires_crypto
+def test_pairing_the_first_device_when_exposed_needs_the_setup_token(
+    exposed_locked_gateway,
+):
+    from agent_hud.tls import session_for
+
+    base, server, info = exposed_locked_gateway
+    session = session_for(fingerprint=info.fingerprint)
+
+    without = session.post(
+        f"{base}/auth/devices/pair", json={"name": "x"}, timeout=5
+    )
+    assert without.status_code == 403
+
+    with_token = session.post(
+        f"{base}/auth/devices/pair", json={"name": "x"}, timeout=5,
+        headers={SETUP_TOKEN_HEADER: server.setup_token},
+    )
+    assert with_token.status_code == 200
+
+
+@requires_crypto
+def test_a_wrong_setup_token_is_refused(exposed_locked_gateway):
+    from agent_hud.tls import session_for
+
+    base, _, info = exposed_locked_gateway
+    session = session_for(fingerprint=info.fingerprint)
+
+    response = session.post(
+        f"{base}/auth/devices/pair", json={"name": "x"}, timeout=5,
+        headers={SETUP_TOKEN_HEADER: "not-the-token"},
+    )
+    assert response.status_code == 403
+
+
+@requires_crypto
+def test_the_state_endpoint_reports_the_setup_token_is_needed(
+    exposed_locked_gateway,
+):
+    from agent_hud.tls import session_for
+
+    base, _, info = exposed_locked_gateway
+    session = session_for(fingerprint=info.fingerprint)
+
+    state = session.get(f"{base}/auth/state", timeout=5).json()
+
+    assert state["setup_token_required"] is True
+
+
+def test_on_loopback_no_setup_token_is_needed_or_made(locked_gateway):
+    base, server = locked_gateway
+
+    assert server.setup_token is None
+    assert _get(base, "/auth/state").json()["setup_token_required"] is False
 
 
 def test_a_ceremony_that_does_not_check_out_says_only_no(locked_gateway):

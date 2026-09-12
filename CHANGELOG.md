@@ -53,7 +53,12 @@ application credentials and a device, neither of which this project has yet.
   / `AGENT_HUD_TLS_KEY`, `AGENT_HUD_GATEWAY_CA` on the glasses). Writes are
   rate limited per client, concurrent requests are capped, and a slow body
   is timed out (`AGENT_HUD_WRITE_RATE`, `AGENT_HUD_MAX_CONNECTIONS`,
-  `AGENT_HUD_REQUEST_TIMEOUT`).
+  `AGENT_HUD_REQUEST_TIMEOUT`). While no passkey exists yet and the
+  gateway is exposed, registering the first one or pairing the first
+  device also needs a one-time setup token, printed once to the console.
+  A WebAuthn ceremony's origin is decided by the gateway's own TLS, not by
+  a header a client can send; `AGENT_HUD_TRUST_PROXY_HEADERS` opts a real
+  reverse proxy's `X-Forwarded-Proto` back in.
 
 ### Fixed
 - A gateway answering with something that is not a list of items was
@@ -69,6 +74,16 @@ application credentials and a device, neither of which this project has yet.
 - Project names no longer assume one person's folder layout.
 - Long transcripts are read from the end rather than in full, so polling
   does not grow more expensive as sessions get longer.
+- A stalled TLS handshake from one connection could freeze the whole
+  single-threaded accept loop, making the gateway unreachable for
+  everyone else. The handshake now happens per connection, in its own
+  worker thread, bounded by a ten-second timeout.
+- The write rate limiter keyed on a client-supplied device header before
+  it was ever verified, so rotating it on every request bought a fresh
+  burst each time and grew the bucket table without bound. It is now keyed
+  on a token the gateway actually recognizes; anything else shares the
+  peer address's budget.
+- The session cookie never carried `Secure`, even once TLS was real.
 
 ### Known limits
 - Staring can only be tested with a mouse. Real eye tracking is accurate to

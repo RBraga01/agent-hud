@@ -156,6 +156,19 @@ button.primary:hover { filter: brightness(1.1); }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, .row.tappable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.buttons input[type="password"],
+.buttons input[type="text"] {
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  min-width: 160px;
+}
+.buttons input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .toggle {
   width: 46px; height: 26px; border-radius: 13px;
   border: 1px solid var(--line);

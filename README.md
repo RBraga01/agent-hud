@@ -102,7 +102,7 @@ AGENT_HUD_DEVICE_TOKEN=<the token Control showed you> python main.py
 
 It is shown once. The gateway keeps only a hash of it, so it cannot show it to you again and a copy of its credential file is not a way in. Control lists what is paired, when each was last seen, and can revoke any of them — a revoked pair of glasses stops getting in immediately and has to be paired again.
 
-Pairing and revoking need a *recent* sign-in, not just a live session, for the same reason adding a passkey does. The one exception is a gateway where no passkey exists yet: there has to be a way to set the first device up, and that opening closes the moment either one is done.
+Pairing and revoking need a *recent* sign-in, not just a live session, for the same reason adding a passkey does. The one exception is a gateway where no passkey exists yet: there has to be a way to set the first device up, and that opening closes the moment either one is done. On loopback that opening is free — nothing off the machine can reach it. Reachable from a network, it is exactly the window an attacker would race you for, so it additionally needs the one-time setup token the gateway prints at startup; see [On the network](#on-the-network).
 
 **Passkeys, not passwords.** Your phone or laptop keeps a private key and proves it holds it. What arrives at the gateway is a public key and a signature. There is no password to choose, reuse, forget or phish, and nothing on the gateway's disk worth stealing.
 
@@ -135,12 +135,26 @@ Self-signed certificate at /home/you/.agent-hud/gateway-cert.pem
 
 The certificate is generated once and reused, so the fingerprint is stable across restarts. On the glasses, `AGENT_HUD_GATEWAY_FINGERPRINT` accepts exactly that one certificate — the name and the chain are not checked, because a self-signed certificate has nothing to check them against. If you already have a real certificate — a domain you own, Caddy, a Tailscale cert, mkcert — point `AGENT_HUD_TLS_CERT` and `AGENT_HUD_TLS_KEY` at it and the glasses verify it the ordinary way, or against `AGENT_HUD_GATEWAY_CA` for a private CA.
 
+**Whoever gets there first, before the first passkey does.** Locked-plus-TLS is not the whole story the moment nobody has registered a passkey yet: reachable from a network, anyone who finds the address before you open Control could register the only passkey, or pair the only device, themselves. So while no passkey exists and the gateway is exposed, it also prints a one-time setup token:
+
+```
+No passkey registered yet, and this gateway is reachable from the network.
+One-time setup token -- needed to register the first passkey or pair the
+first device, and shown only here:
+    kX3f...
+```
+
+Control asks for it the first time you open it against such a gateway, and attaches it to the one registration that needs it. It is never sent anywhere except that request, never written to disk, and stops mattering the moment a passkey exists. On loopback none of this appears — nothing off the machine could win that race in the first place.
+
+**A reverse proxy in front changes what "the real scheme" is.** By default the gateway trusts its own transport, not a header, to decide whether a passkey ceremony's origin is `https`: the certificate above is what it believes. If something else terminates TLS in front of it and forwards plain traffic, set `AGENT_HUD_TRUST_PROXY_HEADERS=1` so `X-Forwarded-Proto` is consulted too — only do this when you control that proxy, since otherwise a direct caller could claim a scheme it never used.
+
 **One noisy client cannot swamp it.** Every write is rate limited per client — the device token is the client, the address before pairing — so a stuck retry loop is told to wait rather than drowning out everyone else. Reads are not limited. The server also caps how many requests it handles at once and cuts off a body that arrives a byte at a time, so one slow or half-open connection cannot hold a thread. All three default on with generous values; `AGENT_HUD_WRITE_RATE`, `AGENT_HUD_MAX_CONNECTIONS` and `AGENT_HUD_REQUEST_TIMEOUT` tune them, and zero turns each off.
 
 | Setting | Where | What it does |
 |---|---|---|
 | `AGENT_HUD_HOST` | gateway | Address to bind. Default `127.0.0.1`. Anything else needs the lock and a certificate |
 | `AGENT_HUD_TLS_CERT` / `AGENT_HUD_TLS_KEY` | gateway | Your own certificate and key. Unset means a self-signed one at `~/.agent-hud/gateway-cert.pem`, made once and reused |
+| `AGENT_HUD_TRUST_PROXY_HEADERS` | gateway | `1` to believe a reverse proxy's `X-Forwarded-Proto` for the passkey origin. Off by default: trusts its own TLS instead |
 | `AGENT_HUD_WRITE_RATE` / `AGENT_HUD_WRITE_BURST` | gateway | The per-client write budget. `5`/s, burst `20`. Either at `0` turns write limiting off |
 | `AGENT_HUD_MAX_CONNECTIONS` | gateway | Requests handled at once before new connections are closed. `64`. `0` for no cap |
 | `AGENT_HUD_REQUEST_TIMEOUT` | gateway | Seconds any one socket read may stall. `30`. `0` waits forever |
@@ -291,6 +305,7 @@ All settings are optional and read from the environment. Nothing is written into
 | `AGENT_HUD_GATEWAY_FINGERPRINT` | — | SHA-256 of the one self-signed certificate the glasses should trust |
 | `AGENT_HUD_GATEWAY_CA` | — | A CA/certificate file to verify the gateway against instead |
 | `AGENT_HUD_TLS_CERT` / `AGENT_HUD_TLS_KEY` | — | The gateway's own certificate and key. Unset means self-signed, kept at `~/.agent-hud/gateway-cert.pem` |
+| `AGENT_HUD_TRUST_PROXY_HEADERS` | off | `1` to believe a reverse proxy's `X-Forwarded-Proto` for the passkey origin |
 | `AGENT_HUD_WRITE_RATE` / `AGENT_HUD_WRITE_BURST` | `5` / `20` | Per-client write budget on the gateway. Either `0` disables it |
 | `AGENT_HUD_MAX_CONNECTIONS` | `64` | Requests the gateway handles at once. `0` for no cap |
 | `AGENT_HUD_REQUEST_TIMEOUT` | `30` | Seconds a gateway socket read may stall. `0` waits forever |

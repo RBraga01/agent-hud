@@ -147,7 +147,29 @@ Administration — adding a passkey, pairing or revoking a device — needs a
 unlocked phone should not be able to quietly pair their own glasses or
 unpair yours. The single exception is a gateway with no passkey yet:
 there has to be a way to set the first device up, and that opening closes
-the moment one is registered.
+the moment one is registered. `_bootstrap_gate` is the one place both
+paths (register a passkey, pair the first device) go through for this.
+
+**That opening is only free on loopback.** Exposed, it is exactly the
+window a network attacker would race the owner to register the only
+passkey or pair the only device in. `_TasksServer` generates a
+`setup_token` in that state — printed once, to the console, never served
+over the network — and `_bootstrap_gate` requires it (via
+`X-Agent-Hud-Setup-Token`) until a passkey exists. Do not widen the
+loopback-free path to the exposed case, or the network gateway is back to
+being a race the first visitor wins.
+
+**`_rp()` trusts the transport, not a header, for the passkey origin's
+scheme.** `self.server.scheme` comes from whether the socket is actually
+TLS-wrapped; a client's `X-Forwarded-Proto` is only honoured when
+`AGENT_HUD_TRUST_PROXY_HEADERS` is explicitly set, because otherwise a
+direct caller could claim a scheme it never used and get an origin the
+ceremony would wrongly vouch for. The logic is `_resolve_rp`, a free
+function precisely so this rule is unit-tested without a socket.
+
+**The session cookie carries `Secure` once `self.server.scheme` is
+`"https"`.** It used to never carry it, on the reasoning that the
+gateway was loopback-only; that reasoning is gone now that it is not.
 
 ## The recording is never kept
 

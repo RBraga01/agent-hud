@@ -64,6 +64,7 @@ EVENTS_PATH = "/events"
 AUTH_PREFIX = "/auth/"
 SESSION_COOKIE = "agent_hud_session"
 DEVICE_HEADER = "X-Agent-Hud-Device"
+SETUP_TOKEN_HEADER = "X-Agent-Hud-Setup-Token"
 
 CONTROL_DIR = Path(__file__).parent.parent / "control"
 
@@ -104,6 +105,34 @@ DEFAULT_REQUEST_TIMEOUT = 30.0
 HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
+
+
+def _resolve_rp(
+    host_header: str,
+    *,
+    scheme: str,
+    trust_proxy_headers: bool,
+    forwarded_proto: str | None,
+) -> tuple[str, str]:
+    """The WebAuthn relying-party name and origin for one request.
+
+    The scheme comes from the transport this connection actually used --
+    ``scheme``, which the server sets once from whether its socket is
+    TLS-wrapped -- not from a header the caller can simply send.
+    ``X-Forwarded-Proto`` is honoured only when ``trust_proxy_headers``
+    is on, which the operator must set explicitly because a real reverse
+    proxy sits in front of the gateway; otherwise a client talking to the
+    gateway directly could claim ``https`` it never used, and get an
+    origin the WebAuthn ceremony would then wrongly vouch for.
+
+    A free function, not a method, so this rule is checked without a
+    socket or a request.
+    """
+    name = host_header.split(":")[0]
+    resolved_scheme = scheme
+    if trust_proxy_headers and forwarded_proto == "https":
+        resolved_scheme = "https"
+    return name, f"{resolved_scheme}://{host_header}"
 
 
 class _TasksHandler(BaseHTTPRequestHandler):
@@ -189,12 +218,14 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         Taken from the address the browser actually used, so a passkey
         registered against one hostname cannot be replayed against
-        another.
+        another. See :func:`_resolve_rp` for how the scheme is decided.
         """
-        host = self.headers.get("Host", "localhost")
-        name = host.split(":")[0]
-        scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
-        return name, f"{scheme}://{host}"
+        return _resolve_rp(
+            self.headers.get("Host", "localhost"),
+            scheme=self.server.scheme,
+            trust_proxy_headers=getattr(self.server, "trust_proxy_headers", False),
+            forwarded_proto=self.headers.get("X-Forwarded-Proto"),
+        )
 
     def _handle_auth(self, path: str) -> None:
         """The sign-in ceremony, and pairing a device.
@@ -217,6 +248,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
                         "registered": store.has_credentials,
                         "signed_in": store.is_signed_in(self._session_token()),
                         "devices": len(store.devices),
+                        "setup_token_required": self.server.setup_token is not None,
                     },
                 )
                 return
@@ -225,10 +257,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 # Only before the first passkey exists, or from a session
                 # that has proved itself recently. Otherwise anyone who
                 # reached the page could add their own key.
-                if store.has_credentials and not store.is_fresh(
-                    self._session_token()
-                ):
-                    self._respond(403, {"error": "sign in again to add a device"})
+                if not self._bootstrap_gate():
                     return
                 self._respond(
                     200, registration_options(store, rp_id=rp_id, origin=origin)
@@ -239,10 +268,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 payload = self._json_body()
                 if payload is None:
                     return
-                if store.has_credentials and not store.is_fresh(
-                    self._session_token()
-                ):
-                    self._respond(403, {"error": "sign in again to add a device"})
+                if not self._bootstrap_gate():
                     return
                 credential = verify_registration(
                     store,
@@ -328,21 +354,51 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         Needs a *recent* sign-in, not just a live session: somebody who
         picks up an unlocked phone should not be able to quietly pair
-        their own glasses or unpair yours. Answers on its own when not.
-
-        The exception is a gateway with no passkey registered yet. There
-        has to be a way to set the first device up, and until somebody
-        has registered a key there is nothing to prove and nobody to
-        prove it to -- the same opening the first passkey registration
-        uses, closing the moment either one is done.
+        their own glasses or unpair yours. Delegates the "no passkey
+        yet" opening to :meth:`_bootstrap_gate`, which is the same
+        opening passkey registration uses.
         """
         if not self.server.require_auth:
             return True
-        if not self.server.auth.has_credentials:
+        return self._bootstrap_gate()
+
+    def _bootstrap_gate(self) -> bool:
+        """Whether the caller may act in an established owner's place --
+        a fresh session once a passkey exists, or, before one does, the
+        gateway's one-time setup token if it is exposed to a network.
+
+        There has to be a way to set the first passkey or the first
+        paired device up, and until either exists there is nothing to
+        prove and nobody to prove it to. On loopback that opening is
+        free, same as it always was: nothing off the machine can reach
+        it. Exposed, it is exactly the window a network attacker would
+        race the owner for -- to register the only passkey, or pair the
+        only device, before the owner does -- so a token printed once,
+        to the console the gateway was started from and never served
+        over the network, is required until the first passkey exists.
+        Answers on its own when refused.
+        """
+        store = self.server.auth
+        if store.has_credentials:
+            if store.is_fresh(self._session_token()):
+                return True
+            self._respond(403, {"error": "sign in again to continue"})
+            return False
+        if not self.server._exposed:
             return True
-        if self.server.auth.is_fresh(self._session_token()):
+        token = self.server.setup_token
+        presented = self.headers.get(SETUP_TOKEN_HEADER, "")
+        if token is not None and presented and secrets.compare_digest(
+            presented, token
+        ):
             return True
-        self._respond(403, {"error": "sign in again to manage devices"})
+        self._respond(
+            403,
+            {
+                "error": "this gateway needs its one-time setup token -- "
+                "see the console it was started from"
+            },
+        )
         return False
 
     def _json_body(self, *, allow_empty: bool = False):
@@ -784,6 +840,7 @@ class _TasksServer(ThreadingHTTPServer):
         write_burst: float = DEFAULT_WRITE_BURST,
         max_connections: int = DEFAULT_MAX_CONNECTIONS,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+        trust_proxy_headers: bool = False,
     ) -> None:
         self.provider = provider
         self.policy = Policy(provider=provider)
@@ -823,6 +880,23 @@ class _TasksServer(ThreadingHTTPServer):
                 "AGENT_HUD_TLS_CERT and AGENT_HUD_TLS_KEY, or let the "
                 "gateway make a self-signed certificate"
             )
+
+        # Only trusted when a reverse proxy is explicitly declared. See
+        # _rp(): otherwise a client talking to the gateway directly could
+        # claim a scheme it never used.
+        self.trust_proxy_headers = bool(trust_proxy_headers)
+
+        # Exposed, with no passkey registered yet: exactly the window a
+        # network attacker could race the owner to register the only
+        # passkey, or pair the only device, in. A token is required for
+        # either ceremony until the first passkey exists; see
+        # _bootstrap_gate. On loopback this stays None -- free, as
+        # always, because nothing off the machine can reach it.
+        self.setup_token = (
+            secrets.token_urlsafe(24)
+            if self._exposed and not self.auth.has_credentials
+            else None
+        )
 
         # Writes are rate limited per client; reads are not. A cap on
         # requests in flight keeps one slow caller from using every
@@ -912,6 +986,7 @@ def create_server(
     write_burst: float = DEFAULT_WRITE_BURST,
     max_connections: int = DEFAULT_MAX_CONNECTIONS,
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+    trust_proxy_headers: bool = False,
 ) -> _TasksServer:
     """Build the gateway.
 
@@ -926,6 +1001,11 @@ def create_server(
             are refused. Zero is no cap.
         request_timeout: Seconds any one socket read may stall. Zero
             waits forever.
+        trust_proxy_headers: Whether a reverse proxy sits in front of
+            this gateway and its ``X-Forwarded-Proto`` may be believed
+            for the WebAuthn origin. Off by default: without a proxy in
+            the path, a direct caller could otherwise claim a scheme it
+            never used.
     """
     return _TasksServer(
         (host, port),
@@ -941,6 +1021,7 @@ def create_server(
         write_burst=write_burst,
         max_connections=max_connections,
         request_timeout=request_timeout,
+        trust_proxy_headers=trust_proxy_headers,
     )
 
 
@@ -968,6 +1049,10 @@ def main() -> None:
     write_burst = _num("AGENT_HUD_WRITE_BURST", DEFAULT_WRITE_BURST)
     max_connections = int(_num("AGENT_HUD_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS))
     request_timeout = _num("AGENT_HUD_REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT)
+    trust_proxy_headers = (
+        os.environ.get("AGENT_HUD_TRUST_PROXY_HEADERS", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
     # A gateway reachable off this machine has to speak TLS. Bring your own
     # certificate, or it makes one, keeps it, and prints the fingerprint to
@@ -1017,6 +1102,7 @@ def main() -> None:
             write_burst=write_burst,
             max_connections=max_connections,
             request_timeout=request_timeout,
+            trust_proxy_headers=trust_proxy_headers,
             sources=[
                 {"name": name, "label": name.replace("_", " ").title(), "on": True}
                 for name in settings.feeders
@@ -1033,6 +1119,14 @@ def main() -> None:
     if not is_loopback(bind_host):
         print("Reachable off this machine. Authentication is on; "
               "pair a device from Control.")
+    if server.setup_token is not None:
+        print(
+            "No passkey registered yet, and this gateway is reachable "
+            "from the network. One-time setup token -- needed to "
+            "register the first passkey or pair the first device, and "
+            "shown only here:\n"
+            f"    {server.setup_token}"
+        )
     if cert_info is not None and cert_info.self_signed:
         print(
             "Self-signed certificate at "
