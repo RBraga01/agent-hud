@@ -573,6 +573,34 @@ def test_bring_your_own_certificate_is_trusted_by_its_ca_file(tmp_path):
         stop()
 
 
+@requires_crypto
+def test_a_stalled_handshake_does_not_freeze_the_gateway_for_everyone_else(
+    tmp_path,
+):
+    """The handshake happens per connection, in its own worker thread --
+    not in the single accept loop -- so a client that opens a connection
+    and never sends a byte of TLS must not stop anyone else from
+    connecting."""
+    import socket
+
+    from agent_hud.tls import session_for
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path)
+    base, stop = _serve_tls(lambda: list(SAMPLE), ssl_context=server_context(info))
+    try:
+        host, port = base.removeprefix("https://").split(":")
+        stalled = socket.create_connection((host, int(port)), timeout=5)
+        try:
+            session = session_for(fingerprint=info.fingerprint)
+            reply = session.get(f"{base}/auth/state", timeout=5)
+            assert reply.status_code == 200
+        finally:
+            stalled.close()
+    finally:
+        stop()
+
+
 # --- one noisy client cannot swamp it -----------------------------------
 
 

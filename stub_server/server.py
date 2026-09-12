@@ -22,6 +22,7 @@ the fingerprint it prints.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
@@ -95,6 +96,12 @@ DEFAULT_MAX_CONNECTIONS = 64
 # arrives a byte at a time. Zero waits forever, which is the old
 # behaviour and fine on loopback.
 DEFAULT_REQUEST_TIMEOUT = 30.0
+
+# How long a TLS handshake may take, per connection, in its own worker
+# thread. Not a setting: it is a floor against a connection that opens
+# and never speaks TLS at all, not a tuning knob, and disabling it would
+# put back the one thing this exists to prevent.
+HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
 DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
 
@@ -825,12 +832,21 @@ class _TasksServer(ThreadingHTTPServer):
         )
         self.request_timeout = request_timeout if request_timeout > 0 else None
 
-        super().__init__(address, _TasksHandler)
+        # The TLS context is kept, not applied here. Wrapping the
+        # *listening* socket would make accept() perform the handshake --
+        # in the single thread that accepts every connection, with no
+        # timeout of its own. One connection that completes the TCP
+        # handshake and then never sends a ClientHello would then hang
+        # that thread forever, freezing the gateway for everyone else
+        # regardless of the connection cap or request timeout above,
+        # neither of which are consulted until after accept() returns.
+        # Wrapping is done per connection instead, in process_request_thread
+        # below, where it is one of many worker threads and bounded by
+        # HANDSHAKE_TIMEOUT_SECONDS.
+        self._ssl_context = ssl_context
+        self.scheme = "https" if ssl_context is not None else "http"
 
-        self.scheme = "http"
-        if ssl_context is not None:
-            self.socket = ssl_context.wrap_socket(self.socket, server_side=True)
-            self.scheme = "https"
+        super().__init__(address, _TasksHandler)
 
     def process_request(self, request, client_address) -> None:
         """Take a slot before spawning the worker, or turn the request
@@ -849,6 +865,23 @@ class _TasksServer(ThreadingHTTPServer):
             raise
 
     def process_request_thread(self, request, client_address) -> None:
+        if self._ssl_context is not None:
+            try:
+                # Bounded, and paid for by this one worker thread -- not
+                # the shared accept loop. A client that never completes
+                # the handshake costs one slot for at most this long, and
+                # every other connection is unaffected.
+                request.settimeout(HANDSHAKE_TIMEOUT_SECONDS)
+                request = self._ssl_context.wrap_socket(request, server_side=True)
+            except (OSError, ssl.SSLError):
+                # Never became a request; nothing to hand to the base
+                # class, and nothing worth logging -- a stalled or
+                # rejected handshake is routine on an open network port.
+                with contextlib.suppress(OSError):
+                    request.close()
+                if self._slots is not None:
+                    self._slots.release()
+                return
         try:
             super().process_request_thread(request, client_address)
         finally:
