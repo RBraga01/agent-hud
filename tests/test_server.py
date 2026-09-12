@@ -1100,6 +1100,32 @@ def test_the_session_cookie_cannot_be_read_by_a_script(locked_gateway):
     assert "SameSite=Strict" in cookie
 
 
+def test_the_session_cookie_is_not_marked_secure_over_plain_http(locked_gateway):
+    # Marking it Secure over http would be a lie the browser could not
+    # act on usefully, and would suggest a guarantee that is not there.
+    base, _ = locked_gateway
+
+    response = requests.post(f"{base}/auth/logout", timeout=5)
+
+    assert "Secure" not in response.headers.get("Set-Cookie", "")
+
+
+@requires_crypto
+def test_the_session_cookie_is_marked_secure_over_https(tmp_path):
+    from agent_hud.tls import session_for
+    from stub_server.tls import ensure_cert, server_context
+
+    info = ensure_cert(store_dir=tmp_path)
+    base, stop = _serve_tls(lambda: [], ssl_context=server_context(info))
+    try:
+        session = session_for(fingerprint=info.fingerprint)
+        response = session.post(f"{base}/auth/logout", timeout=5)
+
+        assert "Secure" in response.headers.get("Set-Cookie", "")
+    finally:
+        stop()
+
+
 def test_adding_a_second_passkey_needs_a_recent_sign_in(locked_gateway):
     """Somebody who picks up an unlocked phone must not be able to quietly
     add their own key."""

@@ -744,12 +744,15 @@ class _TasksHandler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         if session is not None:
             # HttpOnly so no script can read it, SameSite so another site
-            # cannot make a browser use it. Not Secure, because this is
-            # served over plain http on loopback; anything exposed beyond
-            # that belongs behind TLS, which would add it.
+            # cannot make a browser use it, Secure whenever this
+            # connection is actually TLS -- so the cookie is never a
+            # credential worth sending anywhere less than what it was
+            # issued over.
             cookie = (
                 f"{SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict"
             )
+            if self.server.scheme == "https":
+                cookie += "; Secure"
             if not session:
                 cookie += "; Max-Age=0"
             self.send_header("Set-Cookie", cookie)
