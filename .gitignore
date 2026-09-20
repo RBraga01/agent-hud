@@ -14,6 +14,11 @@ TEAM.md
 # See the README. Never commit it here.
 raven-framework/
 
+# Brilliant Labs SDK — public, but kept as a pinned local dependency rather
+# than copied into Agent HUD.
+platforms/halo/vendor/brilliant_sdk/
+platforms/halo/artifacts/
+
 # Internal planning notes, kept outside the repository
 docs/specs/
 docs/plans/

@@ -4,7 +4,11 @@ Notes for coding agents working on this project. Read this before changing anyth
 
 ## What this is
 
-A display for Raven Prism smart glasses that shows whether anything needs the wearer's attention. Python, built on the Raven Framework, which wraps Qt.
+A multi-platform display for smart glasses that shows whether an AI agent needs
+the wearer's attention. Raven Prism uses Python and the proprietary Raven
+Framework. Brilliant Labs Halo uses Lua and the public Brilliant SDK. The
+language-neutral contract under `core/` is the boundary; platform runtimes do
+not import one another.
 
 ## The rule that shapes every file
 
@@ -38,6 +42,10 @@ So every decision worth testing lives in a module that does not import the frame
 | `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
 | `platforms/raven/agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
 | `platforms/raven/agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
+| `platforms/halo/app/core_*.lua` | Halo emulator only | Halo state, contract parsing and decision rules |
+| `platforms/halo/app/ui_*.lua` | Halo emulator only | Halo's 256×256 layout and drawing |
+| `platforms/halo/app/adapter_*.lua` | Halo emulator only | Brilliant display, input and Bluetooth calls |
+| `platforms/halo/host/contract.py` | no | test-side Halo message framing; not a live gateway bridge |
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
@@ -296,6 +304,12 @@ pytest
 ruff check .
 ```
 
+Halo has an isolated environment because its public emulator requires Python
+3.12+ and a pinned Brilliant SDK checkout. From `platforms/halo/`, run
+`python -m uv run pytest -q`. Setup and the exact SDK commit are in that
+platform's README. The SDK belongs under ignored `platforms/halo/vendor/` and
+must never be committed.
+
 Screen tests skip when the framework is absent. That is intended.
 
 Two rules learned the hard way:
@@ -318,7 +332,8 @@ Do not invent values. Take them from `raven_framework.helpers.themes.RAVEN_CORE`
 
 From the design spec, and not open for reinterpretation:
 
-- No acting on items from the glasses. Reading only. Approving things from a display driven by eye tracking is a much bigger decision about safety.
+- No action from focus or navigation. Every platform must show a separate
+  confirmation, and only that final confirmation may send a decision.
 - No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `platforms/raven/agent_hud/`.
 - No reading of anyone's personal data by default. `simulated` is the default feeder for that reason, and the Claude reader keeps prompt text off unless it is asked for.
 - No third-party Python packages in the glasses app beyond what the framework already bundles. How extra packages get installed onto the device is undocumented.
@@ -326,6 +341,8 @@ From the design spec, and not open for reinterpretation:
 ## Repository rules
 
 - **Never commit the Raven Framework.** It is proprietary and gitignored. Do not add any part of it.
+- **Never commit the Brilliant SDK.** It is a separate public dependency pinned
+  for Halo tests. Keep it under `platforms/halo/vendor/brilliant_sdk/`.
 - **Never commit credentials.** No API keys, no `app_id`, no `app_key`, no machine names or internal addresses.
 - **Test data is invented, never observed.** Fixtures must not contain anything seen on a real machine: no real project names, folder layouts, prompts or session identifiers. This has already gone wrong once. Reading real data while developing a feeder is exactly how it happens — you see plausible values on screen and reach for them when writing the test an hour later. Make names up, and make them obviously made up.
 - The framework, the virtual environment, the `logs/` directory it creates, and all local tooling are gitignored. Check `git status` before committing.

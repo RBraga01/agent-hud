@@ -21,6 +21,7 @@ stub_server/
 feeders/
 control/
 docs/
+design/
 integrations/
 platforms/README.md
 platforms/halo/

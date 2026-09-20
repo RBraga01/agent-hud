@@ -1,0 +1,1 @@
+{"type":"request","request_id":"req-001","version":2,"title":"Deploy preview changed","short_context":"The agent produced a newer revision.","primary_action":{"id":"approve","label":"Approve"},"secondary_action":{"id":"inspect_diff","label":"Inspect"},"audio_available":false,"status":"pending"}

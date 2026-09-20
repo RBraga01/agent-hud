@@ -22,3 +22,15 @@ be added to it. It is listed in .gitignore for that reason.
 
 This project is not affiliated with, endorsed by, or connected to
 Raven Resonance Inc.
+
+Brilliant SDK (a separate dependency)
+--------------------------------------
+- Scope: the Brilliant Labs SDK used to run the Halo emulator, installed under
+  platforms/halo/vendor/brilliant_sdk/ during local or CI setup.
+- Upstream: https://github.com/brilliantlabsAR/brilliant_sdk
+- Licence: BSD-3-Clause at the pinned upstream commit recorded in
+  platforms/halo/platform.json.
+
+No Brilliant SDK source is included in this repository. The Lua adapter under
+platforms/halo/ is original Agent HUD code under MIT. This project is not
+affiliated with, endorsed by, or connected to Brilliant Labs.

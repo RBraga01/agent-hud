@@ -7,8 +7,8 @@ code or physical-hardware validation.
 
 | Platform | Implementation | Validation |
 |---|---|---|
-| Raven Prism | Implemented in `platforms/raven/agent_hud/` | Simulator validated |
-| Brilliant Labs Halo | Private prototype; no source in this repository | Emulator validated |
+| [Raven Prism](raven/) | `platforms/raven/agent_hud/` | Simulator validated |
+| [Brilliant Labs Halo](halo/) | `platforms/halo/app/` | Emulator validated |
 | MemoMind One | Research | Not validated |
 
 Validation labels progress independently: research, simulator/emulator

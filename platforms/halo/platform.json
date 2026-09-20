@@ -1,6 +1,7 @@
 {
   "id": "brilliant-halo",
-  "implementation": "private-prototype",
+  "implementation": "in-repository",
   "validation": "emulator-validated",
-  "source": null
+  "source": "app/",
+  "sdk_commit": "f582b88bee798121c51bc483c2b0b4a85dd5e411"
 }

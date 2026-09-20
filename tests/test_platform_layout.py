@@ -23,16 +23,26 @@ def test_platform_descriptors_separate_implementation_and_validation():
     }
     assert halo == {
         "id": "brilliant-halo",
-        "implementation": "private-prototype",
+        "implementation": "in-repository",
         "validation": "emulator-validated",
-        "source": None,
+        "source": "app/",
+        "sdk_commit": "f582b88bee798121c51bc483c2b0b4a85dd5e411",
     }
 
 
-def test_public_halo_directory_contains_no_runtime_source():
-    files = {
-        path.relative_to(ROOT / "platforms/halo").as_posix()
-        for path in (ROOT / "platforms/halo").rglob("*")
-        if path.is_file()
-    }
-    assert files == {"README.md", "platform.json"}
+def test_halo_runtime_is_isolated_and_uses_the_shared_contract():
+    halo = ROOT / "platforms" / "halo"
+    assert (halo / "app" / "main.lua").is_file()
+    assert (halo / "tests" / "test_m0_contract.py").is_file()
+    assert not (halo / "core").exists()
+    assert not (halo / "vendor" / "brilliant_sdk").exists()
+
+
+def test_halo_import_contains_no_private_repository_or_sdk_metadata():
+    halo = ROOT / "platforms" / "halo"
+    forbidden_names = {".git", ".venv", "UPSTREAM_CONTRACT.json"}
+    assert not [
+        path
+        for path in halo.rglob("*")
+        if path.name in forbidden_names or path.suffix in {".key", ".pem"}
+    ]
