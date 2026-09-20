@@ -1,0 +1,1058 @@
+{
+  "contract_version": "1.0.0",
+  "id_session": "m0-session",
+  "cases": [
+    {
+      "name": "focus_never_sends",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "focus",
+          "action_id": "approve"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "selection_never_sends",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "focus",
+          "action_id": "approve"
+        },
+        {
+          "type": "select",
+          "action_id": "approve"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "confirm_without_selection",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "confirm_emits_once",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "duplicate_confirm",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "cancel_before_confirm",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "cancel"
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "unknown_action",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "invented"
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "stale_before_confirm",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "update",
+          "task": {
+            "task_id": "task-1",
+            "revision": 4,
+            "actions": [
+              {
+                "action_id": "approve",
+                "label": "Approve"
+              },
+              {
+                "action_id": "reject",
+                "label": "Reject"
+              }
+            ]
+          }
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [],
+      "expected_decisions": [],
+      "expected_result": null
+    },
+    {
+      "name": "same_revision_keeps_confirmation",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "update",
+          "task": {
+            "task_id": "task-1",
+            "revision": 3,
+            "actions": [
+              {
+                "action_id": "approve",
+                "label": "Approve"
+              },
+              {
+                "action_id": "reject",
+                "label": "Reject"
+              }
+            ]
+          }
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "older_revision_ignored",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "update",
+          "task": {
+            "task_id": "task-1",
+            "revision": 2,
+            "actions": [
+              {
+                "action_id": "approve",
+                "label": "Approve"
+              },
+              {
+                "action_id": "reject",
+                "label": "Reject"
+              }
+            ]
+          }
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "secondary_action",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "reject"
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "reject"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "reject"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "accepted_is_not_completed",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "ACCEPTED"
+    },
+    {
+      "name": "duplicate_accepted",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "DUPLICATE",
+            "original_status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "ACCEPTED"
+    },
+    {
+      "name": "duplicate_stale",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "DUPLICATE",
+            "original_status": "STALE"
+          }
+        },
+        {
+          "type": "retry"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "STALE"
+    },
+    {
+      "name": "error_retry_same_decision",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "ERROR"
+          }
+        },
+        {
+          "type": "retry"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "stale_cannot_retry",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "STALE"
+          }
+        },
+        {
+          "type": "retry"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "STALE"
+    },
+    {
+      "name": "invalid_action_cannot_retry",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "INVALID_ACTION"
+          }
+        },
+        {
+          "type": "retry"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "INVALID_ACTION"
+    },
+    {
+      "name": "mismatched_ack_ignored",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "another-decision",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "mismatched_revision_ack_ignored",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 4,
+            "status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "mismatched_task_ack_ignored",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "other-task",
+            "revision": 3,
+            "status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": null
+    },
+    {
+      "name": "update_after_send_preserves_decision",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "update",
+          "task": {
+            "task_id": "task-1",
+            "revision": 4,
+            "actions": [
+              {
+                "action_id": "approve",
+                "label": "Approve"
+              },
+              {
+                "action_id": "reject",
+                "label": "Reject"
+              }
+            ]
+          }
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "ACCEPTED"
+          }
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "ACCEPTED"
+    },
+    {
+      "name": "confirm_after_accepted",
+      "initial": {
+        "task_id": "task-1",
+        "revision": 3,
+        "actions": [
+          {
+            "action_id": "approve",
+            "label": "Approve"
+          },
+          {
+            "action_id": "reject",
+            "label": "Reject"
+          }
+        ]
+      },
+      "events": [
+        {
+          "type": "select",
+          "action_id": "approve"
+        },
+        {
+          "type": "confirm"
+        },
+        {
+          "type": "result",
+          "result": {
+            "decision_id": "m0-session:1",
+            "task_id": "task-1",
+            "revision": 3,
+            "status": "ACCEPTED"
+          }
+        },
+        {
+          "type": "confirm"
+        }
+      ],
+      "expected_transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected_result": "ACCEPTED"
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "contract_version": "1.0.0",
+  "initial": {
+    "task_id": "task-1",
+    "revision": 3,
+    "actions": [
+      {
+        "action_id": "approve",
+        "label": "Approve"
+      },
+      {
+        "action_id": "reject",
+        "label": "Reject"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "accept",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "ACCEPTED"
+      ]
+    },
+    {
+      "name": "duplicate_after_acceptance",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "ACCEPTED",
+        "DUPLICATE"
+      ],
+      "original_status": "ACCEPTED"
+    },
+    {
+      "name": "stale",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 2,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "STALE"
+      ]
+    },
+    {
+      "name": "duplicate_stale",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 2,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 2,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "STALE",
+        "DUPLICATE"
+      ],
+      "original_status": "STALE"
+    },
+    {
+      "name": "invalid_action",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "invented"
+        }
+      ],
+      "expected": [
+        "INVALID_ACTION"
+      ]
+    },
+    {
+      "name": "id_conflict",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "reject"
+        }
+      ],
+      "expected": [
+        "ACCEPTED",
+        "ERROR"
+      ],
+      "reason": "id_conflict"
+    },
+    {
+      "name": "revision_boolean",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": true,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "ERROR"
+      ]
+    },
+    {
+      "name": "unsupported_payload",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve",
+          "payload": {
+            "text": "example"
+          }
+        }
+      ],
+      "expected": [
+        "ERROR"
+      ]
+    },
+    {
+      "name": "new_decision_after_task_advanced",
+      "decisions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:2",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "expected": [
+        "ACCEPTED",
+        "STALE"
+      ]
+    }
+  ]
+}
