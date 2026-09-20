@@ -1,6 +1,23 @@
 # agent-hud
 
-A quiet display for [Raven Prism](https://raven.computer) smart glasses that tells you when something needs your attention.
+Agent HUD is a quiet, wearable interface for supervising AI agents. It appears
+when an agent needs a human decision, with a verifiable decision contract across
+smart-glasses platforms.
+
+| Platform | Implementation | Validation evidence |
+|---|---|---|
+| [Raven Prism](https://raven.computer) | Implemented in this repository | Simulator and automated tests; hardware validation not claimed here |
+| Brilliant Labs Halo | Prototype maintained separately and privately | Emulator-validated decision flow |
+| MemoMind One | Research | Not validated |
+
+Validation labels are `research`, `simulator/emulator validated`, and `hardware
+validated`. Implementation maturity is recorded separately. The
+[M0 canonical contract](core/contracts/protocol.md) is normative documentation,
+schemas and language-neutral conformance vectors, not a shared runtime library.
+The Raven application and gateway retain their current layout and HTTP API.
+
+[M0 verification](docs/m0-results.md) records the baseline, shared-vector evidence,
+regression results and the precise limits of the multi-platform claim.
 
 You run coding agents and jobs on other machines. Today you find out how they are doing by going to a screen and looking. This tells you instead, in the corner of your vision, without you asking.
 

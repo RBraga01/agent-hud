@@ -15,6 +15,7 @@ raven-framework/
 
 # Development tooling, none of it needed on the glasses.
 tests/
+core/
 stub_server/
 feeders/
 control/
@@ -61,6 +62,7 @@ CHANGELOG.md
 NOTICE
 LICENSE
 .gitignore
+.gitattributes
 .ravignore
 pyproject.toml
 requirements-dev.txt

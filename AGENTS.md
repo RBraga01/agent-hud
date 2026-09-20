@@ -281,6 +281,15 @@ All of these cost real time. None are in Raven's documentation.
 
 ## Testing
 
+M0 adds normative schemas/vectors under `core/` (documentation/data only).
+Raven's adapter is `agent_hud/decision_contract.py`; legacy HTTP names stay intact.
+Run `pytest tests/test_decision_contract.py tests/test_contract_schemas.py
+tests/test_gateway_contract.py -q` without the proprietary framework. Locally,
+`tests/test_m0_app_contract.py` runs the same vectors through the actual Qt app,
+and `tests/test_m0_visual.py` captures the real UI. Keep `core/` out of deploy via
+`.ravignore`. Baseline evidence and the two intentional safety corrections are
+recorded in `docs/m0-baseline.md`.
+
 ```bash
 pytest
 ruff check .
