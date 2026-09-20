@@ -8,7 +8,8 @@
 #
 # Matching is plain path prefixes, not globs. List real paths, not patterns.
 #
-# The deployable payload is exactly:  main.py  and  agent_hud/
+# The deployable payload is exactly:
+# main.py  and  platforms/raven/agent_hud/
 
 # The proprietary framework. Never upload this.
 raven-framework/
@@ -21,6 +22,10 @@ feeders/
 control/
 docs/
 integrations/
+platforms/README.md
+platforms/halo/
+platforms/raven/README.md
+platforms/raven/platform.json
 .github/
 .git/
 .venv/

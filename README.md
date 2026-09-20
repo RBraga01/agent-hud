@@ -14,7 +14,8 @@ Validation labels are `research`, `simulator/emulator validated`, and `hardware
 validated`. Implementation maturity is recorded separately. The
 [M0 canonical contract](core/contracts/protocol.md) is normative documentation,
 schemas and language-neutral conformance vectors, not a shared runtime library.
-The Raven application and gateway retain their current layout and HTTP API.
+The Raven import package and gateway retain their public names and HTTP API;
+the Raven source now lives behind `platforms/raven/`.
 
 [M0 verification](docs/m0-results.md) records the baseline, shared-vector evidence,
 regression results and the precise limits of the multi-platform claim.
@@ -471,17 +472,18 @@ It is also bounded. At most 100 tasks are kept; `source` is capped at 24 charact
 
 ```
 main.py                 entry point
-agent_hud/
-  config.py             settings from the environment      no framework needed
-  tasks.py              the contract and its parser        no framework needed
-  client.py             fetching from the gateway          no framework needed
-  navigation.py         which screen you are on            no framework needed
-  transitions.py        which motion plays                 no framework needed
-  app.py                placing widgets, and little else   needs the framework
-  screens/              one module per screen              needs the framework
-    style.py            colours, sizes, spacing
-    parts.py            cards, rows, buttons, labels
-  assets/               the small source and action marks
+core/                   normative schemas, vectors and reference docs
+platforms/
+  raven/agent_hud/      Raven runtime; imported as agent_hud
+    config.py           settings from the environment      no framework needed
+    tasks.py            the contract and its parser        no framework needed
+    client.py           fetching from the gateway          no framework needed
+    navigation.py       which screen you are on            no framework needed
+    transitions.py      which motion plays                 no framework needed
+    app.py              placing widgets, and little else   needs the framework
+    screens/            one module per screen              needs the framework
+    assets/             the small source and action marks
+  halo/                 public status metadata only; adapter remains private
 feeders/
   simulated.py          invented tasks, no accounts needed no framework needed
   claude_hook.py        reads Claude Code hook state       no framework needed
@@ -542,7 +544,10 @@ export RAVEN_APP_KEY=...
 python main.py deploy
 ```
 
-`.ravignore` restricts the uploaded package to `main.py` and `agent_hud/` — the framework, tests, feeders and documents are all kept out.
+`.ravignore` restricts the uploaded package to `main.py` and
+`platforms/raven/agent_hud/`. `main.py` adds `platforms/raven/` to Python's
+module path before importing `agent_hud`. The framework, core contract, platform
+metadata, tests, feeders and documents are all kept out.
 
 **On credentials at runtime.** The Framework uses `app_id` / `app_key` for peripheral authentication as well as for upload. Raven's current internal testing checks the app out and adds internal credentials locally; the public developer token and its runtime mechanism have not been released yet. Agent HUD keeps credentials out of source control and reads them from the environment. On-device behaviour with a real token is untested — see the roadmap.
 

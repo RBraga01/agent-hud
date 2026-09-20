@@ -1,4 +1,4 @@
-"""The deployment surface must stay exactly main.py + agent_hud/.
+"""The deployment surface must stay exactly main.py + the Raven runtime.
 
 Raven's packager walks the whole directory and copies every `.py` unless
 `.ravignore` excludes it. That file is a deny-list, so it breaks silently
@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 # The only things that belong on the glasses.
 ALLOWED = {"main.py"}
-ALLOWED_DIRS = {"agent_hud"}
+ALLOWED_DIRS = {"platforms/raven/agent_hud"}
 
 
 def load_ravignore():
@@ -57,13 +57,14 @@ def deployable_files():
     return sorted(out)
 
 
-def test_only_main_and_agent_hud_would_be_deployed():
+def test_only_main_and_raven_runtime_would_be_deployed():
     files = deployable_files()
 
     unexpected = [
         f
         for f in files
-        if f not in ALLOWED and f.split("/", 1)[0] not in ALLOWED_DIRS
+        if f not in ALLOWED
+        and not any(f.startswith(directory + "/") for directory in ALLOWED_DIRS)
     ]
 
     assert unexpected == [], (
@@ -72,11 +73,14 @@ def test_only_main_and_agent_hud_would_be_deployed():
     )
 
 
-def test_main_and_the_package_are_actually_included():
+def test_main_and_the_raven_package_are_actually_included():
     files = deployable_files()
 
     assert "main.py" in files
-    assert any(f.startswith("agent_hud/") and f.endswith(".py") for f in files)
+    assert any(
+        f.startswith("platforms/raven/agent_hud/") and f.endswith(".py")
+        for f in files
+    )
 
 
 def test_the_framework_clone_is_excluded():

@@ -16,14 +16,14 @@ So every decision worth testing lives in a module that does not import the frame
 
 | Module | Needs the framework | What it holds |
 |---|---|---|
-| `agent_hud/tasks.py` | no | the task contract and its parser |
-| `agent_hud/config.py` | no | settings from the environment |
-| `agent_hud/client.py` | no | fetching from the gateway |
-| `agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
-| `agent_hud/navigation.py` | no | which screen you are on, and what moves you |
-| `agent_hud/preferences.py` | no | the settings the gateway owns and the glasses cache |
-| `agent_hud/gateways.py` | no | the paired environments, and which one is in use |
-| `agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
+| `platforms/raven/agent_hud/tasks.py` | no | the task contract and its parser |
+| `platforms/raven/agent_hud/config.py` | no | settings from the environment |
+| `platforms/raven/agent_hud/client.py` | no | fetching from the gateway |
+| `platforms/raven/agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
+| `platforms/raven/agent_hud/navigation.py` | no | which screen you are on, and what moves you |
+| `platforms/raven/agent_hud/preferences.py` | no | the settings the gateway owns and the glasses cache |
+| `platforms/raven/agent_hud/gateways.py` | no | the paired environments, and which one is in use |
+| `platforms/raven/agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
@@ -36,8 +36,8 @@ So every decision worth testing lives in a module that does not import the frame
 | `stub_server/drafts.py` | no | replies being written, before they are sent. Temporary by construction |
 | `stub_server/auth.py` | no | passkeys: what is stored, how long a session lasts, what must be proved again |
 | `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
-| `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
-| `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
+| `platforms/raven/agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
+| `platforms/raven/agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
@@ -109,7 +109,7 @@ checks are in `_TasksServer.__init__`, before the socket binds, and
 builds the context: a persistent self-signed certificate under
 `~/.agent-hud/` whose fingerprint it prints to pin, or `AGENT_HUD_TLS_CERT`
 / `AGENT_HUD_TLS_KEY` for one you supply. `stub_server/tls.py` makes and
-reads the certificate; `agent_hud/tls.py` is the client side —
+reads the certificate; `platforms/raven/agent_hud/tls.py` is the client side —
 `session_for()` builds the `requests.Session` the app uses for every call.
 
 **Writes are rate limited and the server bounds its own load.** Every
@@ -282,7 +282,8 @@ All of these cost real time. None are in Raven's documentation.
 ## Testing
 
 M0 adds normative schemas/vectors under `core/` (documentation/data only).
-Raven's adapter is `agent_hud/decision_contract.py`; legacy HTTP names stay intact.
+Raven's adapter is `platforms/raven/agent_hud/decision_contract.py`; legacy HTTP
+names and the `agent_hud` import package stay intact.
 Run `pytest tests/test_decision_contract.py tests/test_contract_schemas.py
 tests/test_gateway_contract.py -q` without the proprietary framework. Locally,
 `tests/test_m0_app_contract.py` runs the same vectors through the actual Qt app,
@@ -318,7 +319,7 @@ Do not invent values. Take them from `raven_framework.helpers.themes.RAVEN_CORE`
 From the design spec, and not open for reinterpretation:
 
 - No acting on items from the glasses. Reading only. Approving things from a display driven by eye tracking is a much bigger decision about safety.
-- No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `agent_hud/`.
+- No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `platforms/raven/agent_hud/`.
 - No reading of anyone's personal data by default. `simulated` is the default feeder for that reason, and the Claude reader keeps prompt text off unless it is asked for.
 - No third-party Python packages in the glasses app beyond what the framework already bundles. How extra packages get installed onto the device is undocumented.
 

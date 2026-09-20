@@ -55,6 +55,9 @@ jobs:
           fi
           echo "Clean."
 
+      - name: Check platform and deploy boundaries
+        run: pytest -q tests/test_platform_layout.py tests/test_deploy_surface.py
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
