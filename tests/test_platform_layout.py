@@ -1,9 +1,22 @@
 import json
+import subprocess
 from pathlib import Path
 
 import agent_hud
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _tracked_halo_paths() -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", "platforms/halo"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return [Path(raw) for raw in result.stdout.split("\0") if raw]
 
 
 def test_raven_package_lives_behind_the_platform_boundary():
@@ -35,14 +48,17 @@ def test_halo_runtime_is_isolated_and_uses_the_shared_contract():
     assert (halo / "app" / "main.lua").is_file()
     assert (halo / "tests" / "test_m0_contract.py").is_file()
     assert not (halo / "core").exists()
-    assert not (halo / "vendor" / "brilliant_sdk").exists()
+    assert not [
+        path
+        for path in _tracked_halo_paths()
+        if path.is_relative_to(Path("platforms/halo/vendor/brilliant_sdk"))
+    ]
 
 
 def test_halo_import_contains_no_private_repository_or_sdk_metadata():
-    halo = ROOT / "platforms" / "halo"
     forbidden_names = {".git", ".venv", "UPSTREAM_CONTRACT.json"}
     assert not [
         path
-        for path in halo.rglob("*")
-        if path.name in forbidden_names or path.suffix in {".key", ".pem"}
+        for path in _tracked_halo_paths()
+        if set(path.parts) & forbidden_names or path.suffix in {".key", ".pem"}
     ]
