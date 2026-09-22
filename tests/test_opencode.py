@@ -10,6 +10,7 @@ import json
 import sqlite3
 
 from agent_hud.tasks import parse_tasks
+
 from feeders import opencode
 
 NOW = 1_000_000.0
@@ -40,7 +41,7 @@ def build_db(tmp_path, sessions):
             (
                 s["id"],
                 s.get("title", ""),
-                s.get("directory", "e:/Projectos/thing"),
+                s.get("directory", "/example/thing"),
                 updated,
                 s.get("archived"),
             ),
@@ -75,8 +76,14 @@ def user():
 def test_a_finished_turn_needs_you(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_aaaa1111bbbb", "title": "Refactor the loader", "age": 300,
-          "last": assistant()}],
+        [
+            {
+                "id": "ses_aaaa1111bbbb",
+                "title": "Refactor the loader",
+                "age": 300,
+                "last": assistant(),
+            }
+        ],
     )
 
     items = opencode.collect(db, now=NOW)
@@ -93,8 +100,14 @@ def test_a_finished_turn_needs_you(tmp_path):
 def test_a_still_generating_turn_does_not_need_you(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_x", "title": "Long job", "age": 60,
-          "last": assistant(completed=False, finish=None)}],
+        [
+            {
+                "id": "ses_x",
+                "title": "Long job",
+                "age": 60,
+                "last": assistant(completed=False, finish=None),
+            }
+        ],
     )
 
     assert opencode.collect(db, now=NOW)[0]["needs_you"] is False
@@ -113,8 +126,14 @@ def test_your_line_is_newest_means_working(tmp_path):
 def test_an_errored_turn_needs_you_and_says_failed(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_z", "title": "Broke", "age": 120,
-          "last": assistant(finish="error")}],
+        [
+            {
+                "id": "ses_z",
+                "title": "Broke",
+                "age": 120,
+                "last": assistant(finish="error"),
+            }
+        ],
     )
 
     it = opencode.collect(db, now=NOW)[0]
@@ -125,8 +144,14 @@ def test_an_errored_turn_needs_you_and_says_failed(tmp_path):
 def test_an_aborted_turn_also_says_failed(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_ab", "title": "Killed", "age": 120,
-          "last": assistant(finish="aborted")}],
+        [
+            {
+                "id": "ses_ab",
+                "title": "Killed",
+                "age": 120,
+                "last": assistant(finish="aborted"),
+            }
+        ],
     )
 
     assert opencode.collect(db, now=NOW)[0]["summary"] == "failed"
@@ -135,8 +160,15 @@ def test_an_aborted_turn_also_says_failed(tmp_path):
 def test_the_auto_generated_title_falls_back_to_the_project(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_p", "title": "New session - 2026-09-07T11:44:02.472Z",
-          "directory": "e:/Projectos/my-api", "age": 120, "last": assistant()}],
+        [
+            {
+                "id": "ses_p",
+                "title": "New session - 2026-09-07T11:44:02.472Z",
+                "directory": "/example/my-api",
+                "age": 120,
+                "last": assistant(),
+            }
+        ],
     )
 
     assert opencode.collect(db, now=NOW)[0]["title"] == "my api"
@@ -145,8 +177,14 @@ def test_the_auto_generated_title_falls_back_to_the_project(tmp_path):
 def test_an_abandoned_session_drops_out(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_old", "title": "Old", "age": opencode.STALE_SECONDS + 60,
-          "last": assistant()}],
+        [
+            {
+                "id": "ses_old",
+                "title": "Old",
+                "age": opencode.STALE_SECONDS + 60,
+                "last": assistant(),
+            }
+        ],
     )
 
     assert opencode.collect(db, now=NOW) == []
@@ -155,8 +193,15 @@ def test_an_abandoned_session_drops_out(tmp_path):
 def test_an_archived_session_is_left_alone(tmp_path):
     db = build_db(
         tmp_path,
-        [{"id": "ses_arch", "title": "Done and filed", "age": 120,
-          "archived": int((NOW - 100) * MS), "last": assistant()}],
+        [
+            {
+                "id": "ses_arch",
+                "title": "Done and filed",
+                "age": 120,
+                "archived": int((NOW - 100) * MS),
+                "last": assistant(),
+            }
+        ],
     )
 
     assert opencode.collect(db, now=NOW) == []
@@ -175,8 +220,12 @@ def test_things_waiting_on_you_come_first(tmp_path):
     db = build_db(
         tmp_path,
         [
-            {"id": "ses_w", "title": "Working one", "age": 100,
-             "last": assistant(completed=False, finish=None)},
+            {
+                "id": "ses_w",
+                "title": "Working one",
+                "age": 100,
+                "last": assistant(completed=False, finish=None),
+            },
             {"id": "ses_r", "title": "Ready one", "age": 100, "last": assistant()},
         ],
     )
@@ -202,7 +251,7 @@ def test_a_damaged_message_row_is_skipped_not_fatal(tmp_path):
     )
     con = sqlite3.connect(db)
     con.execute(
-        "INSERT INTO session VALUES ('ses_bad','Bad','e:/p',?,NULL)",
+        "INSERT INTO session VALUES ('ses_bad','Bad','/example/p',?,NULL)",
         (int((NOW - 60) * MS),),
     )
     con.execute(
@@ -232,8 +281,12 @@ def test_the_items_parse_as_tasks(tmp_path):
         tmp_path,
         [
             {"id": "ses_1", "title": "One", "age": 100, "last": assistant()},
-            {"id": "ses_2", "title": "Two", "age": 200,
-             "last": assistant(finish="error")},
+            {
+                "id": "ses_2",
+                "title": "Two",
+                "age": 200,
+                "last": assistant(finish="error"),
+            },
         ],
     )
 

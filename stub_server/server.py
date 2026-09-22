@@ -104,7 +104,9 @@ DEFAULT_REQUEST_TIMEOUT = 30.0
 # put back the one thing this exists to prevent.
 HANDSHAKE_TIMEOUT_SECONDS = 10.0
 
-DEFAULT_DATA_PATH = Path(__file__).parent / "agents.json"
+# Hand-edited tasks are runtime data and may contain real agent output. Keep
+# them in an ignored file; ``agents.example.json`` is the safe tracked template.
+DEFAULT_DATA_PATH = Path(__file__).parent / "agents.local.json"
 
 
 def _resolve_rp(
@@ -175,7 +177,8 @@ class _TasksHandler(BaseHTTPRequestHandler):
         if limiter is None or limiter.check(self._client_key()):
             return True
         self._respond(
-            429, {"error": "too many requests, slow down"},
+            429,
+            {"error": "too many requests, slow down"},
             headers={"Retry-After": "1"},
         )
         return False
@@ -234,7 +237,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
         the gateway that stays open when the lock is on, because
         otherwise there would be no way in.
         """
-        what = path[len(AUTH_PREFIX):]
+        what = path[len(AUTH_PREFIX) :]
         store = self.server.auth
         rp_id, origin = self._rp()
 
@@ -331,7 +334,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             if what.startswith("devices/revoke/"):
                 if not self._may_administer():
                     return
-                removed = store.revoke_device(what[len("devices/revoke/"):])
+                removed = store.revoke_device(what[len("devices/revoke/") :])
                 self._respond(200 if removed else 404, {"revoked": removed})
                 return
 
@@ -388,9 +391,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return True
         token = self.server.setup_token
         presented = self.headers.get(SETUP_TOKEN_HEADER, "")
-        if token is not None and presented and secrets.compare_digest(
-            presented, token
-        ):
+        if token is not None and presented and secrets.compare_digest(presented, token):
             return True
         self._respond(
             403,
@@ -444,9 +445,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return
 
         tasks = payload.get("tasks")
-        if not isinstance(tasks, list) or any(
-            not isinstance(t, dict) for t in tasks
-        ):
+        if not isinstance(tasks, list) or any(not isinstance(t, dict) for t in tasks):
             self._respond(400, {"error": "tasks must be a list of objects"})
             return
 
@@ -486,9 +485,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
         numbered = dict(payload)
         numbered["revision"] = self.server.preferences.revision + 1
 
-        updated, accepted = parse_preferences(
-            numbered, current=self.server.preferences
-        )
+        updated, accepted = parse_preferences(numbered, current=self.server.preferences)
         if not accepted:
             self._respond(400, {"error": "settings could not be read"})
             return
@@ -512,7 +509,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return
 
         if path.startswith(CONTROL_PREFIX):
-            self._serve_control(path[len(CONTROL_PREFIX):] or "index.html")
+            self._serve_control(path[len(CONTROL_PREFIX) :] or "index.html")
             return
 
         if path == SETTINGS_PATH:
@@ -658,9 +655,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             return
 
         language = self.headers.get("X-Audio-Language", "auto")
-        result = transcribe_upload(
-            self.server.transcriber, audio, language=language
-        )
+        result = transcribe_upload(self.server.transcriber, audio, language=language)
         del audio  # nothing else in this method may reach it
 
         if not result.ok:
@@ -804,9 +799,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
             # connection is actually TLS -- so the cookie is never a
             # credential worth sending anywhere less than what it was
             # issued over.
-            cookie = (
-                f"{SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict"
-            )
+            cookie = f"{SESSION_COOKIE}={session}; Path=/; HttpOnly; SameSite=Strict"
             if self.server.scheme == "https":
                 cookie += "; Secure"
             if not session:
@@ -907,9 +900,7 @@ class _TasksServer(ThreadingHTTPServer):
             else None
         )
         self._slots = (
-            threading.BoundedSemaphore(max_connections)
-            if max_connections > 0
-            else None
+            threading.BoundedSemaphore(max_connections) if max_connections > 0 else None
         )
         self.request_timeout = request_timeout if request_timeout > 0 else None
 
@@ -1028,6 +1019,7 @@ def create_server(
 def main() -> None:
     """Run the stub until interrupted."""
     from agent_hud.config import load_settings
+
     from feeders import collect
 
     from .refresher import Refresher
@@ -1049,10 +1041,9 @@ def main() -> None:
     write_burst = _num("AGENT_HUD_WRITE_BURST", DEFAULT_WRITE_BURST)
     max_connections = int(_num("AGENT_HUD_MAX_CONNECTIONS", DEFAULT_MAX_CONNECTIONS))
     request_timeout = _num("AGENT_HUD_REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT)
-    trust_proxy_headers = (
-        os.environ.get("AGENT_HUD_TRUST_PROXY_HEADERS", "").strip().lower()
-        in {"1", "true", "yes", "on"}
-    )
+    trust_proxy_headers = os.environ.get(
+        "AGENT_HUD_TRUST_PROXY_HEADERS", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
     # A gateway reachable off this machine has to speak TLS. Bring your own
     # certificate, or it makes one, keeps it, and prints the fingerprint to
@@ -1117,8 +1108,10 @@ def main() -> None:
     print(f"Stub gateway on {scheme}://{host}:{bound_port}{TASKS_PATH}")
     print(f"Control on      {scheme}://{host}:{bound_port}{CONTROL_PREFIX}")
     if not is_loopback(bind_host):
-        print("Reachable off this machine. Authentication is on; "
-              "pair a device from Control.")
+        print(
+            "Reachable off this machine. Authentication is on; "
+            "pair a device from Control."
+        )
     if server.setup_token is not None:
         print(
             "No passkey registered yet, and this gateway is reachable "
@@ -1136,8 +1129,10 @@ def main() -> None:
         )
     elif cert_info is not None:
         print(f"Serving your certificate ({cert_info.certfile}).")
-    print(f"Feeders: {', '.join(settings.feeders)}  (sweep every "
-          f"{settings.refresh_seconds:g}s; push at {EVENTS_PATH})")
+    print(
+        f"Feeders: {', '.join(settings.feeders)}  (sweep every "
+        f"{settings.refresh_seconds:g}s; push at {EVENTS_PATH})"
+    )
     if "file" in settings.feeders:
         print(f"Editing {DEFAULT_DATA_PATH} changes what the glasses show.")
     try:

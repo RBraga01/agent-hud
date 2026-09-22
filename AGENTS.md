@@ -344,5 +344,12 @@ From the design spec, and not open for reinterpretation:
 - **Never commit the Brilliant SDK.** It is a separate public dependency pinned
   for Halo tests. Keep it under `platforms/halo/vendor/brilliant_sdk/`.
 - **Never commit credentials.** No API keys, no `app_id`, no `app_key`, no machine names or internal addresses.
+- **Never commit agent state.** Claude/Codex transcripts, hook state, OpenCode
+  databases and hand-edited tasks are runtime data. Keep them in their ignored
+  locations. `stub_server/agents.example.json` is invented and read-only;
+  `agents.local.json` is the editable copy.
 - **Test data is invented, never observed.** Fixtures must not contain anything seen on a real machine: no real project names, folder layouts, prompts or session identifiers. This has already gone wrong once. Reading real data while developing a feeder is exactly how it happens — you see plausible values on screen and reach for them when writing the test an hour later. Make names up, and make them obviously made up.
-- The framework, the virtual environment, the `logs/` directory it creates, and all local tooling are gitignored. Check `git status` before committing.
+- The frameworks, virtual environments, agent state, local databases,
+  certificates, logs and local tooling are gitignored. Run
+  `pytest tests/test_publication_hygiene.py -q` and check `git status` before
+  committing.

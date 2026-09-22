@@ -1,5 +1,13 @@
-# Local development and agent tooling
+# Local development and agent tooling. These folders can contain prompts,
+# transcripts, session indexes, tool databases and machine-specific paths.
 .claude/
+.codex/
+.agent-hud/
+.opencode/
+.cursor/
+.continue/
+.windsurf/
+.aider*
 .agent-sync/
 skills/
 hooks/
@@ -9,6 +17,8 @@ INIT.md
 TEAM.md
 .metrics/
 .sessions/
+sessions/
+transcripts/
 
 # Raven Framework — a separate proprietary dependency, installed by hand.
 # See the README. Never commit it here.
@@ -24,9 +34,29 @@ docs/specs/
 docs/plans/
 
 # Secrets and local settings
-.env
-.env.local
+.env*
+!.env.example
 agents.local.json
+credentials*.json
+passkeys*.json
+secrets*.json
+tokens*.json
+
+# Local databases, logs, certificates and private keys. The application reads
+# these from outside the repository; tests create temporary copies under pytest.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+*.key
+*.pem
+*.p12
+*.pfx
+gateway-cert.*
+id_rsa*
+id_ed25519*
 
 # Runtime output from the Raven framework's logger
 logs/

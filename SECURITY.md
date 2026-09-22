@@ -12,11 +12,14 @@ Please include what the problem is, how to reproduce it, what it could lead to, 
 
 ## What this project is
 
-A display app for smart glasses, plus a small development server. It stores nothing, has no accounts, and has no users other than the person wearing the glasses. The realistic concerns are narrow, and listed below.
+A display app for smart glasses, plus a small development server. It keeps no
+task history or analytics. Local authentication material, a self-signed
+certificate and small Claude hook state may be stored under `~/.agent-hud/`,
+outside the repository. The realistic concerns are narrow, and listed below.
 
 ## Where the risk actually is
 
-**The gateway is unlocked by default, and that is only safe on loopback.** With `AGENT_HUD_REQUIRE_AUTH` off it serves whatever is in `stub_server/agents.json` to anyone who can reach it, so the default bind is `127.0.0.1` and nothing else. Do not tunnel that default binding anywhere, and do not run it unlocked on a shared machine with anything private in that file.
+**The gateway is unlocked by default, and that is only safe on loopback.** With `AGENT_HUD_REQUIRE_AUTH` off it serves whatever its enabled feeders report, including the ignored `stub_server/agents.local.json` file when the `file` feeder is selected. The default bind is therefore `127.0.0.1` and nothing else. Do not tunnel that default binding anywhere, and do not run it unlocked on a shared machine with private task data.
 
 **Off loopback it insists on more.** `AGENT_HUD_HOST` binds it to a network address, and the gateway refuses to start unless authentication is on (passkeys via `py_webauthn`, with paired-device tokens for the glasses) and it has a TLS certificate — self-signed with a pinned fingerprint, or one you supply. Writes are rate limited per client and the server caps concurrent requests and slow bodies. This makes a network deployment defensible; it does not make the gateway a hardened multi-tenant service. It is still one process holding the credentials for everything it reports on, and it is the thing worth protecting.
 
@@ -41,6 +44,8 @@ If you find any part of it in this repository, that is a licence problem rather 
 - No credentials in the app. Deployment credentials, when there are any, are
   read from the environment (`RAVEN_APP_ID`, `RAVEN_APP_KEY`) and never written
   into tracked source.
+- No live agent data in tracked examples. `stub_server/agents.example.json`
+  contains invented data; the editable `agents.local.json` copy is ignored.
 
 ## Supported versions
 

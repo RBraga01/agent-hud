@@ -138,7 +138,7 @@ The signature checking is `py_webauthn`'s, not ours. Verifying one means parsing
 **A certificate.** Set nothing and the gateway makes its own, keeps it at `~/.agent-hud/gateway-cert.pem`, and prints the line to pin:
 
 ```
-Self-signed certificate at /home/you/.agent-hud/gateway-cert.pem
+Self-signed certificate at $HOME/.agent-hud/gateway-cert.pem
   On the glasses, pin it:
     AGENT_HUD_GATEWAY_FINGERPRINT=A1:B2:C3:...
 ```
@@ -285,7 +285,18 @@ python main.py
 
 The simulator opens. Your mouse stands in for where you are looking, and a click stands in for the double blink or completed dwell that activates whatever you are aimed at, and the buttons along the bottom preview how it looks in daylight, at night and outdoors. Black shows as transparent, because the real display can only add light to the world — it can never darken it.
 
-Now edit `stub_server/agents.json` and watch the glasses follow within a few seconds.
+The default feeder uses invented tasks and needs no local data. To drive the
+display by hand, first make an ignored working copy of the public example:
+
+```bash
+cp stub_server/agents.example.json stub_server/agents.local.json
+AGENT_HUD_FEEDERS=file python -m stub_server.server
+```
+
+On PowerShell, use
+`Copy-Item stub_server/agents.example.json stub_server/agents.local.json`.
+Edit only `agents.local.json`; Git ignores it because it may contain real task
+text, project names or paths.
 
 ## Settings
 
@@ -348,7 +359,7 @@ A **feeder** is the part that knows about one particular tool. The glasses app k
 | `codex` | Your recent Codex CLI sessions, from `~/.codex`. Reads the session index for a title and the session log's tail for whose turn it is. Undocumented format, like `claude`. |
 | `github` | Open pull requests, in any repository you can see, where you have been asked to review. Asks GitHub through the `gh` CLI, so there is no token for this project to hold. Draft PRs are skipped; no PR body is read. |
 | `opencode` | Your recent OpenCode sessions. OpenCode keeps its state in one SQLite database rather than log files, so this opens `opencode.db` read-only and reads whose turn it is from the newest message. Undocumented schema, like `claude` and `codex`. |
-| `file` | `stub_server/agents.json`, so you can drive the display by hand while testing. An absent file is fine (no data yet); a file that is present but not valid JSON is treated as a broken source and shows the incomplete marker rather than an empty screen. |
+| `file` | Ignored `stub_server/agents.local.json`, so you can drive the display by hand without risking task data in Git. Copy `agents.example.json` first. An absent file is fine; invalid JSON is treated as a broken source rather than an empty screen. |
 
 Choose them in order — the first one listed appears first on screen:
 
@@ -475,7 +486,7 @@ platforms/
     app.py              placing widgets, and little else   needs the framework
     screens/            one module per screen              needs the framework
     assets/             the small source and action marks
-  halo/                 public status metadata only; adapter remains private
+  halo/                 Lua app, emulator tests and reviewed evidence
 feeders/
   simulated.py          invented tasks, no accounts needed no framework needed
   claude_hook.py        reads Claude Code hook state       no framework needed
@@ -489,7 +500,8 @@ stub_server/
   server.py             serves a store; a sweep + POST /events fill it  no framework needed
   store.py              the gateway's own view of the list
   refresher.py          the background feeder sweep
-  agents.json           edit this when using the file feeder
+  agents.example.json   invented template; never put real task data here
+  agents.local.json     ignored working copy for the file feeder
 tests/
 ```
 

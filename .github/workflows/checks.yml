@@ -58,6 +58,9 @@ jobs:
       - name: Check platform and deploy boundaries
         run: pytest -q tests/test_platform_layout.py tests/test_deploy_surface.py
 
+      - name: Check public-repository hygiene
+        run: pytest -q tests/test_publication_hygiene.py
+
   halo-emulator:
     runs-on: ubuntu-latest
     steps:

@@ -34,6 +34,12 @@ venv/
 
 # Local agent tooling (also gitignored).
 .claude/
+.codex/
+.agent-hud/
+.opencode/
+.cursor/
+.continue/
+.windsurf/
 .agent-sync/
 skills/
 hooks/
@@ -41,6 +47,8 @@ scripts/
 templates/
 .metrics/
 .sessions/
+sessions/
+transcripts/
 INIT.md
 TEAM.md
 logs/
@@ -55,6 +63,7 @@ __pycache__/
 # Secrets and local config.
 .env
 .env.local
+.env.production
 .env.example
 agents.local.json
 
