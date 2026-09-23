@@ -1,4 +1,4 @@
-"""The deployment surface must stay exactly main.py + agent_hud/.
+"""The deployment surface must stay exactly main.py + the Raven runtime.
 
 Raven's packager walks the whole directory and copies every `.py` unless
 `.ravignore` excludes it. That file is a deny-list, so it breaks silently
@@ -9,11 +9,15 @@ ship. It does not need the Raven Framework installed.
 
 from pathlib import Path
 
+import pytest
+
+from agent_hud.deployment import assert_safe_deploy_tree
+
 REPO = Path(__file__).resolve().parents[1]
 
 # The only things that belong on the glasses.
 ALLOWED = {"main.py"}
-ALLOWED_DIRS = {"agent_hud"}
+ALLOWED_DIRS = {"platforms/raven/agent_hud"}
 
 
 def load_ravignore():
@@ -57,13 +61,14 @@ def deployable_files():
     return sorted(out)
 
 
-def test_only_main_and_agent_hud_would_be_deployed():
+def test_only_main_and_raven_runtime_would_be_deployed():
     files = deployable_files()
 
     unexpected = [
         f
         for f in files
-        if f not in ALLOWED and f.split("/", 1)[0] not in ALLOWED_DIRS
+        if f not in ALLOWED
+        and not any(f.startswith(directory + "/") for directory in ALLOWED_DIRS)
     ]
 
     assert unexpected == [], (
@@ -72,11 +77,14 @@ def test_only_main_and_agent_hud_would_be_deployed():
     )
 
 
-def test_main_and_the_package_are_actually_included():
+def test_main_and_the_raven_package_are_actually_included():
     files = deployable_files()
 
     assert "main.py" in files
-    assert any(f.startswith("agent_hud/") and f.endswith(".py") for f in files)
+    assert any(
+        f.startswith("platforms/raven/agent_hud/") and f.endswith(".py")
+        for f in files
+    )
 
 
 def test_the_framework_clone_is_excluded():
@@ -86,3 +94,41 @@ def test_the_framework_clone_is_excluded():
 def test_the_hook_scripts_are_excluded():
     patterns = load_ravignore()
     assert is_ignored("integrations/claude_code/agent_hud_stop.py", patterns)
+
+
+def test_local_secret_json_files_are_excluded_from_raven_deploys():
+    patterns = load_ravignore()
+    exact_names = (
+        "credentials.json",
+        "passkeys.json",
+        "secrets.json",
+        "tokens.json",
+    )
+
+    assert all(is_ignored(path, patterns) for path in exact_names)
+
+
+def test_suffixed_local_secret_json_files_block_raven_deploys(tmp_path):
+    runtime = tmp_path / "platforms/raven/agent_hud"
+    runtime.mkdir(parents=True)
+    local_secrets = (
+        tmp_path / "credentials-production.json",
+        tmp_path / "passkeys.local.json",
+        tmp_path / "secrets-backup.json",
+        tmp_path / "tokens.dev.json",
+        runtime / "tokens-runtime.json",
+    )
+    for path in local_secrets:
+        path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Refusing Raven deploy"):
+        assert_safe_deploy_tree(tmp_path)
+
+
+def test_raven_deploy_entrypoint_runs_the_local_secret_guard_first():
+    source = (REPO / "main.py").read_text(encoding="utf-8")
+
+    guard_call = "assert_safe_deploy_tree(Path(__file__).resolve().parent)"
+    deploy_call = "RunApp.run("
+    assert guard_call in source
+    assert source.index(guard_call) < source.index(deploy_call)

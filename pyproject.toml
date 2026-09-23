@@ -1,7 +1,7 @@
 [project]
 name = "agent-hud"
 version = "0.1.0"
-description = "A quiet status display for Raven Prism smart glasses"
+description = "A quiet wearable interface for supervising AI agent decisions"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -10,26 +10,33 @@ license = { text = "MIT" }
 # installed separately by hand, and must never be pulled in automatically.
 # See the README for how to install it.
 #
-# requests is listed because agent_hud/client.py imports it directly. The
+# requests is listed because platforms/raven/agent_hud/client.py imports it. The
 # framework happens to bundle it too, so nothing extra reaches the glasses.
 dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "jsonschema>=4.18,<5"]
 # Only the gateway ever needs these, and only for what they name.
 # Nothing here is installed by default and nothing reaches the glasses:
-# the deployed app is main.py plus agent_hud/, and neither imports them.
+# the deployed app is main.py plus platforms/raven/agent_hud/, and neither
+# imports them.
 # passkeys and TLS, for exposing the gateway off loopback. cryptography is
 # listed because stub_server/tls.py imports it directly to make and read the
 # self-signed certificate; webauthn pulls it in too.
 gateway = ["webauthn>=2.0", "cryptography>=42"]
 speech = ["faster-whisper>=1.0"]      # local transcription, for Audio
 
-# Declared explicitly. With two top-level packages in a flat layout,
-# setuptools refuses to guess and the install fails, which a local editable
-# install can hide, but a clean one will not.
+# The import stays `agent_hud`; only its source ownership moves under Raven.
+# Gateway/feeders remain platform-neutral root packages.
 [tool.setuptools]
-packages = ["agent_hud", "feeders", "stub_server"]
+packages = ["agent_hud", "agent_hud.screens", "feeders", "stub_server"]
+
+[tool.setuptools.package-dir]
+agent_hud = "platforms/raven/agent_hud"
+"agent_hud.screens" = "platforms/raven/agent_hud/screens"
+
+[tool.setuptools.package-data]
+agent_hud = ["assets/actions/*.png", "assets/sources/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -48,7 +55,10 @@ source = ["agent_hud", "feeders", "stub_server"]
 # is widget placement, which is checked by its own tests locally and by eye
 # in the simulator, because readability on an additive display cannot be
 # asserted in a test.
-omit = ["agent_hud/app.py", "agent_hud/screens/*"]
+omit = [
+    "platforms/raven/agent_hud/app.py",
+    "platforms/raven/agent_hud/screens/*",
+]
 
 [tool.coverage.report]
 fail_under = 80
@@ -61,3 +71,6 @@ exclude = ["raven-framework", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent_hud", "feeders", "stub_server"]

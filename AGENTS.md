@@ -4,7 +4,11 @@ Notes for coding agents working on this project. Read this before changing anyth
 
 ## What this is
 
-A display for Raven Prism smart glasses that shows whether anything needs the wearer's attention. Python, built on the Raven Framework, which wraps Qt.
+A multi-platform display for smart glasses that shows whether an AI agent needs
+the wearer's attention. Raven Prism uses Python and the proprietary Raven
+Framework. Brilliant Labs Halo uses Lua and the public Brilliant SDK. The
+language-neutral contract under `core/` is the boundary; platform runtimes do
+not import one another.
 
 ## The rule that shapes every file
 
@@ -16,14 +20,14 @@ So every decision worth testing lives in a module that does not import the frame
 
 | Module | Needs the framework | What it holds |
 |---|---|---|
-| `agent_hud/tasks.py` | no | the task contract and its parser |
-| `agent_hud/config.py` | no | settings from the environment |
-| `agent_hud/client.py` | no | fetching from the gateway |
-| `agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
-| `agent_hud/navigation.py` | no | which screen you are on, and what moves you |
-| `agent_hud/preferences.py` | no | the settings the gateway owns and the glasses cache |
-| `agent_hud/gateways.py` | no | the paired environments, and which one is in use |
-| `agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
+| `platforms/raven/agent_hud/tasks.py` | no | the task contract and its parser |
+| `platforms/raven/agent_hud/config.py` | no | settings from the environment |
+| `platforms/raven/agent_hud/client.py` | no | fetching from the gateway |
+| `platforms/raven/agent_hud/feedback.py` | no | sending an answer back: the request, its id, and the four outcomes |
+| `platforms/raven/agent_hud/navigation.py` | no | which screen you are on, and what moves you |
+| `platforms/raven/agent_hud/preferences.py` | no | the settings the gateway owns and the glasses cache |
+| `platforms/raven/agent_hud/gateways.py` | no | the paired environments, and which one is in use |
+| `platforms/raven/agent_hud/transitions.py` | no | which motion plays on a screen change, and how far it travels |
 | `feeders/simulated.py` | no | invented items, no accounts needed |
 | `feeders/claude_hook.py` | no | reads state from the Claude Code hooks (supported) |
 | `feeders/claude_sessions.py` | no | reads transcript files directly (no setup, undocumented format) |
@@ -36,8 +40,12 @@ So every decision worth testing lives in a module that does not import the frame
 | `stub_server/drafts.py` | no | replies being written, before they are sent. Temporary by construction |
 | `stub_server/auth.py` | no | passkeys: what is stored, how long a session lasts, what must be proved again |
 | `control/` | no | the phone and browser app the gateway serves — plain HTML, CSS and JS, no build step and no dependencies |
-| `agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
-| `agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
+| `platforms/raven/agent_hud/screens/*.py` | **yes** | building each screen's widgets, and nothing else |
+| `platforms/raven/agent_hud/app.py` | **yes** | placing screens, forwarding events, asking the gateway |
+| `platforms/halo/app/core_*.lua` | Halo emulator only | Halo state, contract parsing and decision rules |
+| `platforms/halo/app/ui_*.lua` | Halo emulator only | Halo's 256×256 layout and drawing |
+| `platforms/halo/app/adapter_*.lua` | Halo emulator only | Brilliant display, input and Bluetooth calls |
+| `platforms/halo/host/contract.py` | no | test-side Halo message framing; not a live gateway bridge |
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
@@ -109,7 +117,7 @@ checks are in `_TasksServer.__init__`, before the socket binds, and
 builds the context: a persistent self-signed certificate under
 `~/.agent-hud/` whose fingerprint it prints to pin, or `AGENT_HUD_TLS_CERT`
 / `AGENT_HUD_TLS_KEY` for one you supply. `stub_server/tls.py` makes and
-reads the certificate; `agent_hud/tls.py` is the client side —
+reads the certificate; `platforms/raven/agent_hud/tls.py` is the client side —
 `session_for()` builds the `requests.Session` the app uses for every call.
 
 **Writes are rate limited and the server bounds its own load.** Every
@@ -281,10 +289,26 @@ All of these cost real time. None are in Raven's documentation.
 
 ## Testing
 
+M0 adds normative schemas/vectors under `core/` (documentation/data only).
+Raven's adapter is `platforms/raven/agent_hud/decision_contract.py`; legacy HTTP
+names and the `agent_hud` import package stay intact.
+Run `pytest tests/test_decision_contract.py tests/test_contract_schemas.py
+tests/test_gateway_contract.py -q` without the proprietary framework. Locally,
+`tests/test_m0_app_contract.py` runs the same vectors through the actual Qt app,
+and `tests/test_m0_visual.py` captures the real UI. Keep `core/` out of deploy via
+`.ravignore`. Baseline evidence and the two intentional safety corrections are
+recorded in `docs/m0-baseline.md`.
+
 ```bash
 pytest
 ruff check .
 ```
+
+Halo has an isolated environment because its public emulator requires Python
+3.12+ and a pinned Brilliant SDK checkout. From `platforms/halo/`, run
+`python -m uv run pytest -q`. Setup and the exact SDK commit are in that
+platform's README. The SDK belongs under ignored `platforms/halo/vendor/` and
+must never be committed.
 
 Screen tests skip when the framework is absent. That is intended.
 
@@ -308,14 +332,24 @@ Do not invent values. Take them from `raven_framework.helpers.themes.RAVEN_CORE`
 
 From the design spec, and not open for reinterpretation:
 
-- No acting on items from the glasses. Reading only. Approving things from a display driven by eye tracking is a much bigger decision about safety.
-- No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `agent_hud/`.
+- No action from focus or navigation. Every platform must show a separate
+  confirmation, and only that final confirmation may send a decision.
+- No tool-specific knowledge in the app. It draws a list of items; feeders know about the tools. Adding a source means adding a module to `feeders/` and naming it in `KNOWN_FEEDERS`, and changing nothing in `platforms/raven/agent_hud/`.
 - No reading of anyone's personal data by default. `simulated` is the default feeder for that reason, and the Claude reader keeps prompt text off unless it is asked for.
 - No third-party Python packages in the glasses app beyond what the framework already bundles. How extra packages get installed onto the device is undocumented.
 
 ## Repository rules
 
 - **Never commit the Raven Framework.** It is proprietary and gitignored. Do not add any part of it.
+- **Never commit the Brilliant SDK.** It is a separate public dependency pinned
+  for Halo tests. Keep it under `platforms/halo/vendor/brilliant_sdk/`.
 - **Never commit credentials.** No API keys, no `app_id`, no `app_key`, no machine names or internal addresses.
+- **Never commit agent state.** Claude/Codex transcripts, hook state, OpenCode
+  databases and hand-edited tasks are runtime data. Keep them in their ignored
+  locations. `stub_server/agents.example.json` is invented and read-only;
+  `agents.local.json` is the editable copy.
 - **Test data is invented, never observed.** Fixtures must not contain anything seen on a real machine: no real project names, folder layouts, prompts or session identifiers. This has already gone wrong once. Reading real data while developing a feeder is exactly how it happens — you see plausible values on screen and reach for them when writing the test an hour later. Make names up, and make them obviously made up.
-- The framework, the virtual environment, the `logs/` directory it creates, and all local tooling are gitignored. Check `git status` before committing.
+- The frameworks, virtual environments, agent state, local databases,
+  certificates, logs and local tooling are gitignored. Run
+  `pytest tests/test_publication_hygiene.py -q` and check `git status` before
+  committing.

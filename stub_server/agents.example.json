@@ -6,7 +6,7 @@
       "source": "Claude",
       "title": "Deploy production",
       "summary": "Deployment needs approval",
-      "detail": "Edit this file and the glasses follow within a few seconds. Change the revision whenever you change anything else, so the display can tell a new version from the old one.",
+      "detail": "Copy this example to agents.local.json before experimenting. Change the revision whenever you change anything else, so the display can tell a new version from the old one.",
       "needs_you": true,
       "actions": {
         "primary": { "id": "approve", "label": "Approve" },

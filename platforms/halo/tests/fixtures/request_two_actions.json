@@ -1,0 +1,1 @@
+{"type":"request","request_id":"req-002","version":3,"title":"Resolve test failure?","short_context":"One snapshot changed after the UI update.","primary_action":{"id":"update_snapshot","label":"Update"},"secondary_action":{"id":"inspect_diff","label":"Inspect"},"audio_available":true,"status":"pending"}

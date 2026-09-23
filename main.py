@@ -15,12 +15,24 @@ edited to hold a real key:
 """
 
 import os
+import sys
+from pathlib import Path
 
-from raven_framework import RunApp
+# Raven deploys this repository as files rather than installing its Python
+# package. Keep the public import name while the source lives behind its
+# platform boundary.
+RAVEN_PLATFORM_ROOT = Path(__file__).resolve().parent / "platforms" / "raven"
+if str(RAVEN_PLATFORM_ROOT) not in sys.path:
+    sys.path.insert(0, str(RAVEN_PLATFORM_ROOT))
 
-from agent_hud.app import AgentHud
+from raven_framework import RunApp  # noqa: E402
+
+from agent_hud.app import AgentHud  # noqa: E402
+from agent_hud.deployment import assert_safe_deploy_tree  # noqa: E402
 
 if __name__ == "__main__":
+    if sys.argv[1:2] and sys.argv[1] in {"deploy", "deploy-pyc"}:
+        assert_safe_deploy_tree(Path(__file__).resolve().parent)
     RunApp.run(
         lambda: AgentHud(),
         app_id=os.environ.get("RAVEN_APP_ID", ""),

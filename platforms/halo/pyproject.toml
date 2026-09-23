@@ -1,0 +1,21 @@
+[project]
+name = "halo-agent-hud"
+version = "0.1.0"
+description = "Agent HUD platform adapter for Brilliant Labs Halo"
+license = "MIT"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "halo-emulator==2.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.3",
+]
+
+[tool.uv.sources]
+halo-emulator = { path = "vendor/brilliant_sdk/python/packages/halo_emulator", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

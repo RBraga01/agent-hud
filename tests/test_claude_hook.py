@@ -91,7 +91,10 @@ def test_the_waiting_detail_carries_an_age(tmp_path):
 
 def test_an_abandoned_session_drops_out(tmp_path):
     write_state(
-        tmp_path, "old00000", "old", "waiting",
+        tmp_path,
+        "old00000",
+        "old",
+        "waiting",
         age_seconds=claude_hook.STALE_SECONDS + 60,
     )
 
@@ -242,7 +245,7 @@ def test_stop_with_no_background_work_writes_waiting(tmp_path):
 
     r = run_hook(
         "agent_hud_stop.py",
-        {"session_id": "s1", "cwd": "/home/me/workspace/my-app"},
+        {"session_id": "s1", "cwd": "/example/workspace/my-app"},
         {"AGENT_HUD_CLAUDE_STATE": str(state)},
     )
 
@@ -357,7 +360,7 @@ def test_the_filename_is_a_hash_not_the_raw_session_id(tmp_path):
 def test_the_full_lifecycle_round_trips(tmp_path):
     state = tmp_path / "state"
     env = {"AGENT_HUD_CLAUDE_STATE": str(state)}
-    sid = {"session_id": "s", "cwd": "/home/me/my-project"}
+    sid = {"session_id": "s", "cwd": "/example/my-project"}
 
     run_hook("agent_hud_prompt.py", sid, env)
     assert claude_hook.collect(state)[0]["needs_you"] is False  # working

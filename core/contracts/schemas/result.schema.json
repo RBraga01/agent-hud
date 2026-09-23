@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent HUD Decision Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "task_id",
+    "revision",
+    "status"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "status": {
+      "enum": [
+        "ACCEPTED",
+        "STALE",
+        "INVALID_ACTION",
+        "DUPLICATE",
+        "ERROR"
+      ]
+    },
+    "original_status": {
+      "enum": [
+        "ACCEPTED",
+        "STALE",
+        "INVALID_ACTION"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 256
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "DUPLICATE"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "original_status"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "original_status"
+          ]
+        }
+      }
+    }
+  ]
+}

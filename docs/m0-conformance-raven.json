@@ -1,0 +1,235 @@
+{
+  "contract_version": "1.0.0",
+  "vector_sha256": "90660a039ecc00cec7685234128e2d7976a8228c5b2518b902c2e92c73451f1d",
+  "runtime": "Raven Python production navigation/confirmation",
+  "cases": [
+    {
+      "name": "focus_never_sends",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "selection_never_sends",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "confirm_without_selection",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "confirm_emits_once",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "duplicate_confirm",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "cancel_before_confirm",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "unknown_action",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "stale_before_confirm",
+      "transmissions": [],
+      "result": null
+    },
+    {
+      "name": "same_revision_keeps_confirmation",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "older_revision_ignored",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "secondary_action",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "reject"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "accepted_is_not_completed",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "ACCEPTED"
+    },
+    {
+      "name": "duplicate_accepted",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "ACCEPTED"
+    },
+    {
+      "name": "duplicate_stale",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "STALE"
+    },
+    {
+      "name": "error_retry_same_decision",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        },
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "stale_cannot_retry",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "STALE"
+    },
+    {
+      "name": "invalid_action_cannot_retry",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "INVALID_ACTION"
+    },
+    {
+      "name": "mismatched_ack_ignored",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "mismatched_revision_ack_ignored",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "mismatched_task_ack_ignored",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "update_after_send_preserves_decision",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "ACCEPTED"
+    },
+    {
+      "name": "confirm_after_accepted",
+      "transmissions": [
+        {
+          "decision_id": "m0-session:1",
+          "task_id": "task-1",
+          "revision": 3,
+          "action_id": "approve"
+        }
+      ],
+      "result": "ACCEPTED"
+    }
+  ]
+}

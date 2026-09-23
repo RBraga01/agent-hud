@@ -1,0 +1,1 @@
+{"type":"request","request_id":"req-001","version":1,"title":"Deploy preview?","short_context":"Agent finished changes and needs approval.","primary_action":{"id":"approve","label":"Approve"},"audio_available":false,"status":"pending"}

@@ -8,18 +8,25 @@
 #
 # Matching is plain path prefixes, not globs. List real paths, not patterns.
 #
-# The deployable payload is exactly:  main.py  and  agent_hud/
+# The deployable payload is exactly:
+# main.py  and  platforms/raven/agent_hud/
 
 # The proprietary framework. Never upload this.
 raven-framework/
 
 # Development tooling, none of it needed on the glasses.
 tests/
+core/
 stub_server/
 feeders/
 control/
 docs/
+design/
 integrations/
+platforms/README.md
+platforms/halo/
+platforms/raven/README.md
+platforms/raven/platform.json
 .github/
 .git/
 .venv/
@@ -27,6 +34,12 @@ venv/
 
 # Local agent tooling (also gitignored).
 .claude/
+.codex/
+.agent-hud/
+.opencode/
+.cursor/
+.continue/
+.windsurf/
 .agent-sync/
 skills/
 hooks/
@@ -34,6 +47,8 @@ scripts/
 templates/
 .metrics/
 .sessions/
+sessions/
+transcripts/
 INIT.md
 TEAM.md
 logs/
@@ -48,8 +63,15 @@ __pycache__/
 # Secrets and local config.
 .env
 .env.local
+.env.production
 .env.example
 agents.local.json
+# Raven matches exact paths rather than globs. The deploy entry point also
+# rejects suffixed variants such as credentials-production.json.
+credentials.json
+passkeys.json
+secrets.json
+tokens.json
 
 # Repository documents, not application files.
 README.md
@@ -61,6 +83,7 @@ CHANGELOG.md
 NOTICE
 LICENSE
 .gitignore
+.gitattributes
 .ravignore
 pyproject.toml
 requirements-dev.txt

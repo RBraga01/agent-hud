@@ -34,6 +34,7 @@ from .client import (
     fetch_tasks,
 )
 from .config import Settings, load_settings
+from .decision_contract import current_observations, prepare_feedback
 from .feedback import (
     Feedback,
     SendOutcome,
@@ -416,16 +417,11 @@ class AgentHud(RavenApp):
         does the sending off the main thread. Freezing the display for a
         five second timeout would be its own kind of failure.
         """
-        task = self.current_task
-        if task is None or self._nav.action_id is None:
+        outgoing = prepare_feedback(self._nav, self._tasks, new_request_id)
+        if outgoing is None:
             return
 
-        self._outgoing = Feedback(
-            task_id=task.id,
-            revision=task.revision,
-            action_id=self._nav.action_id,
-            request_id=new_request_id(),
-        )
+        self._outgoing = outgoing
         self._send_state = SendState.SENDING
         self._send_reason = ""
         self._fire(Event.CONFIRM)
@@ -531,7 +527,7 @@ class AgentHud(RavenApp):
         self._dropped = result.dropped if result.ok else 0
         self._truncated = result.truncated if result.ok else 0
         if result.ok:
-            self._tasks = result.tasks
+            self._tasks = current_observations(self._tasks, result.tasks)
 
         self._failures = 0 if result.ok else self._failures + 1
 

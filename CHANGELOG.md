@@ -7,6 +7,19 @@ hardware. The Raven Framework supports deployment; doing so needs Raven-issued
 application credentials and a device, neither of which this project has yet.
 
 ### Added
+- Brilliant Labs Halo as an in-repository Lua platform, imported as a clean
+  MIT-licensed export without private history or vendor SDK source.
+- A dedicated Halo emulator environment, 49 adapter/contract/input tests,
+  reviewed framebuffer evidence and an independent CI job against the pinned
+  public Brilliant SDK commit.
+- A platform-neutral project README plus complete Raven Prism and Halo guides.
+- Written Halo layout, state, copy and interaction specifications under
+  `design/`.
+- A normative, language-neutral decision contract under `core/`, with shared
+  conformance vectors for Raven and Halo.
+- Explicit platform boundaries: Raven runtime source now lives under
+  `platforms/raven/agent_hud/`; Halo runtime source lives under
+  `platforms/halo/app/`.
 - Reads a list of items from a gateway and shows how many need attention.
 - A count in the right periphery. Stare at it and the detail opens; look away
   and stay away and it closes.
@@ -25,7 +38,7 @@ application credentials and a device, neither of which this project has yet.
   rather than popping in. The launch render and the first data render are
   instant; motion starts once the app is up. `AGENT_HUD_ANIMATIONS=off`
   disables it. Decision logic and geometry are in the framework-free
-  agent_hud/transitions.py.
+  platforms/raven/agent_hud/transitions.py.
 - `codex` feeder — recent Codex CLI sessions from `~/.codex`, using the
   session index for titles and the session log's tail for whose turn it
   is. Reads event types only, never message bodies. `feeders/codex.py` is
