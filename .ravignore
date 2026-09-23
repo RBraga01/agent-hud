@@ -66,6 +66,12 @@ __pycache__/
 .env.production
 .env.example
 agents.local.json
+# Raven matches exact paths rather than globs. The deploy entry point also
+# rejects suffixed variants such as credentials-production.json.
+credentials.json
+passkeys.json
+secrets.json
+tokens.json
 
 # Repository documents, not application files.
 README.md
