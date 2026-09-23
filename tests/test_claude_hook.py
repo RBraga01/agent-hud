@@ -13,8 +13,8 @@ import time
 from pathlib import Path
 
 import pytest
-from agent_hud.tasks import parse_tasks
 
+from agent_hud.tasks import parse_tasks
 from feeders import claude_hook
 
 NOW = 1_000_000.0

@@ -1019,7 +1019,6 @@ def create_server(
 def main() -> None:
     """Run the stub until interrupted."""
     from agent_hud.config import load_settings
-
     from feeders import collect
 
     from .refresher import Refresher

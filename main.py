@@ -25,8 +25,9 @@ RAVEN_PLATFORM_ROOT = Path(__file__).resolve().parent / "platforms" / "raven"
 if str(RAVEN_PLATFORM_ROOT) not in sys.path:
     sys.path.insert(0, str(RAVEN_PLATFORM_ROOT))
 
-from agent_hud.app import AgentHud  # noqa: E402
 from raven_framework import RunApp  # noqa: E402
+
+from agent_hud.app import AgentHud  # noqa: E402
 
 if __name__ == "__main__":
     RunApp.run(
