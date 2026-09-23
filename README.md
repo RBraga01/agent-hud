@@ -4,9 +4,9 @@ Agent HUD is a quiet display for keeping an eye on AI agents while you do
 something else. It stays out of the way until an agent needs a human decision,
 then lets you read the request and answer it deliberately.
 
-The project now supports more than one kind of smart glasses. Each platform has
-its own layout and controls, but they follow the same safety rules and speak the
-same decision format.
+The project now contains implementations for more than one smart-glasses
+platform. Each platform has its own layout and controls, but they follow the
+same safety rules and speak the same decision format.
 
 | Raven Prism | Brilliant Labs Halo |
 |---|---|
@@ -33,7 +33,7 @@ Every answer also carries the task revision and a stable decision ID. The
 revision stops you answering an old version; the decision ID makes retry safe
 when the first reply was lost.
 
-## Supported platforms
+## Platforms and validation status
 
 | Platform | What is here | Evidence |
 |---|---|---|
