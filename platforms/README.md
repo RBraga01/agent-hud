@@ -9,7 +9,7 @@ code or physical-hardware validation.
 |---|---|---|
 | [Raven Prism](raven/) | `platforms/raven/agent_hud/` | Simulator validated |
 | [Brilliant Labs Halo](halo/) | `platforms/halo/app/` | Emulator validated |
-| MemoMind One | Research | Not validated |
+| [MemoMind One](memomind/) | Paired C GMP + JavaScript MMPKG | Functional and visual Desktop Studio evidence; paired glass-side reconnect and hardware pending |
 
-Validation labels progress independently: research, simulator/emulator
-validated, hardware validated.
+Validation labels progress independently: research, SDK contract validated,
+simulator/emulator validated, hardware validated.

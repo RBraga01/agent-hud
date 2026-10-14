@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Agent HUD — MemoMind simulator</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #06080b; color: #f4f7f8; }
+      main { max-width: 38rem; margin: 0 auto; padding: 2rem 1.25rem; }
+      .eyebrow { color: #77d9d2; font-size: .75rem; letter-spacing: .16em; text-transform: uppercase; }
+      h1 { margin: .4rem 0 1rem; font-weight: 600; }
+      .card { border: 1px solid #26343d; border-radius: 1rem; background: #0d1318; padding: 1.25rem; }
+      #status { min-height: 1.5rem; color: #cbd5dc; }
+      #status[data-state="pass"] { color: #7ee2a8; }
+      #status[data-state="error"] { color: #ff9d9d; }
+      .scenario { border-top: 1px solid #26343d; margin-top: 1rem; padding-top: 1rem; }
+      .scenario:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+      .scenario h2 { margin: 0 0 .35rem; font-size: 1rem; }
+      .scenario p { margin: 0 0 .65rem; color: #9dabb4; font-size: .9rem; }
+      button { width: 100%; margin: .35rem 0; border: 0; border-radius: .75rem; padding: .8rem; font: inherit; font-weight: 700; background: #77d9d2; color: #071012; }
+      button.secondary { border: 1px solid #36505e; background: #16232b; color: #dce7eb; }
+      button:disabled { opacity: .45; }
+      pre { min-height: 7rem; white-space: pre-wrap; color: #aebcc5; }
+      small { color: #7d8b94; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="eyebrow">MemoMind One · M2 simulator</div>
+      <h1>Agent HUD state flow</h1>
+      <section class="card">
+        <p id="status">Starting bridge…</p>
+        <div class="scenario">
+          <h2>1 · Cancel sends nothing</h2>
+          <p>Open the request, enter confirmation, then press Back.</p>
+          <button id="send-cancel" data-connected type="button">Start cancel test</button>
+          <button id="verify-cancel" class="secondary" type="button" disabled>Verify no decision received</button>
+        </div>
+        <div class="scenario">
+          <h2>2 · Stale revision is blocked</h2>
+          <p>Reach confirmation, then supersede the request from here.</p>
+          <button id="send-stale" data-connected type="button">Start stale test · revision 3</button>
+          <button id="supersede-stale" class="secondary" type="button" disabled>Supersede with revision 4</button>
+        </div>
+        <div class="scenario">
+          <h2>3 · Duplicate confirmation is idempotent</h2>
+          <p>The first result is made ambiguous; retry must reuse the same decision ID.</p>
+          <button id="send-duplicate" data-connected type="button">Start duplicate-safe retry</button>
+        </div>
+        <pre id="evidence">No run yet.</pre>
+        <small>Transport receipt is not a gateway acknowledgement.</small>
+        <div class="scenario">
+          <h2>Event log</h2>
+          <p>Structured phone-runtime evidence. Newest 30 entries are retained.</p>
+          <pre id="event-log">No events yet.</pre>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="src/agent-hud.js"></script>
+  </body>
+</html>
