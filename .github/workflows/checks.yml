@@ -104,7 +104,7 @@ jobs:
           node-version: "22"
 
       - name: Install test dependency
-        run: python -m pip install pytest
+        run: python -m pip install pytest PyNaCl
 
       - name: Fetch the pinned MemoMind public SDK
         run: |
