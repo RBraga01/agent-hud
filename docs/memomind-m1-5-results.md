@@ -320,3 +320,40 @@ new framebuffer captures are
 `glasses-2026-10-14-warning-final.png`. The user approved these visual
 corrections on 2026-10-14. This approval covers the Desktop Studio renderer,
 not physical MemoMind One hardware or the remaining reconnect test.
+
+## Paired package-restart probe — 2026-10-14
+
+The current candidate was reloaded into Desktop Studio `0.1.0` for an
+interruption probe. The staged phone package and the canonical artifact had
+the same SHA-256 (`79d3fb8c5b0eb95d880ffee6ab8626f15da6b64e8305bc22995af0ddc71dd72c`);
+the Mapping-B GMP was the `e23a60be72b96f9c0a0d25eed41c72ef0fafc710ba720beaef6e3bea4ba655a1`
+build above. This matters because an earlier Studio selection still pointed
+at a stale phone package without the structured Event log; that selection was
+replaced before the observations below.
+
+| Time (Studio local) | Observation |
+|---|---|
+| 11:35:58 | Phone session A completed sending `task-cancel`, revision 1. The HUD was advanced to the separate `CONFIRM?` screen. No `decision.received` appeared in the phone Event log. |
+| 11:36:43 | The glass package selector was changed to `Not selected`. Studio rebuilt the paired runtime. A different phone session B logged `device.connection` with `connected:false`, then `scenario.reset` with `pendingDiscarded:false`. |
+| 11:37:00 | The glass package was selected again. A third phone session C logged `connected:true`; the UI showed `No run yet`, and the glass HUD was quiet. No old confirmation or automatic decision was observed. |
+| 11:37:20 | A *fresh* `task-cancel` request was explicitly started in the new session. |
+| 11:38:51 | After single tap, two double taps, Back from confirmation and two more Back actions, the phone test reported `PASS — cancel emitted no decision`; its structured result was `{"passed":true,"decisionsReceived":0,"event":"scenario.cancel.verified"}`. |
+
+The Desktop Studio UI and its local `studio-20261014-093155-20592.log` are the
+evidence sources. The latter records package-share restarts at 11:36:43 and
+11:37:00; the structured phone entries above were observed in Studio's Web
+Logs/Event log. They are not present in the separate `phonesdk`/`glasssdk`
+files, which were empty for this run. No raw Studio logs or screenshots are
+committed.
+
+**Evidence boundary:** changing the glass package selector restarts the
+paired Studio packages, including the phone plugin. It is not a live
+Bluetooth disconnect/reconnect delivered to an already-running GMP. In
+particular, `pendingDiscarded:false` belongs to a *new* phone session and
+cannot prove that the armed old session handled a disconnect event. This
+probe confirms safe reconstruction after a package restart and a fresh
+cancel-without-send path; it does **not** close the paired glass-side
+reconnect gate. Desktop Studio exposes no documented connection toggle for
+that paired GMP test. M2 therefore remains `IN PROGRESS`, and PR #8 remains
+draft until a supported disconnect/reconnect stimulus (or physical-device
+evidence) proves the full path.

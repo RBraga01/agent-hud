@@ -195,6 +195,7 @@ CONFIRMED_ON_HARDWARE
 | Phone lifecycle interruption discards pending approval | Official Browser Studio lifecycle injection on 2026-10-14 | `suspended`, `stopped` and `failed` each disarmed the active scenario; returning to `running` required a fresh test | `CONFIRMED_BY_SIMULATOR` | OS background/lock behavior and real process termination remain untested |
 | Phone disconnect/reconnect does not replay a request | Official Browser Studio connection injection on 2026-10-14 | Disconnect disarmed the active scenario; reconnect enabled controls but did not restore it | `CONFIRMED_BY_SIMULATOR` | Paired glass-side recovery and Bluetooth delivery behavior remain untested |
 | Phone runtime reconstruction starts a new session | Official Browser Studio plugin reload on 2026-10-14 | Armed state was lost, UI returned to `No run yet`, and `session_id` changed | `CONFIRMED_BY_SIMULATOR` | Companion-app kill and physical-device persistence remain untested |
+| Paired package restart does not restore confirmation | Desktop Studio package-selector probe on 2026-10-14 | Removing and reselecting the glass package restarted both runtimes; the HUD returned to quiet and the phone required a fresh request | `CONFIRMED_BY_SIMULATOR` | This is not a live Bluetooth disconnect/reconnect delivered to an active GMP |
 
 ## Open lifecycle and transport gates
 
@@ -226,6 +227,9 @@ render rate.
 
 1. Interrupt the paired flow at confirmation, verify the glasses return to
    quiet/disconnected without sending, reconnect, and require a fresh request.
+   Desktop Studio's package selector restarts both runtimes and cannot by
+   itself close this gate; use a supported live connection stimulus or real
+   hardware. The limited restart probe is documented in the evidence report.
 2. Confirm the Mapping B trace still emits exactly once and that retry requires
    a new confirmation while reusing the decision ID.
 3. Exercise background, lock and sleep cases that only Desktop Studio or
