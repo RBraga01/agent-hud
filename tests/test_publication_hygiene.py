@@ -21,6 +21,9 @@ LOCAL_ONLY_PATHS = (
     ".windsurf/session.json",
     ".env.production",
     "gateway-cert.pem",
+    "platforms/memomind/vendor/plugin-open-platform/README.md",
+    "platforms/memomind/artifacts/agent-hud.gmp",
+    "platforms/memomind/artifacts/agent-hud.mmpkg",
     "stub_server/agents.local.json",
 )
 
@@ -45,6 +48,8 @@ FORBIDDEN_TRACKED_SUFFIXES = {
     ".pfx",
     ".sqlite",
     ".sqlite3",
+    ".gmp",
+    ".mmpkg",
 }
 
 LOCAL_ABSOLUTE_PATH = re.compile(

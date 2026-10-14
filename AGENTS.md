@@ -6,9 +6,10 @@ Notes for coding agents working on this project. Read this before changing anyth
 
 A multi-platform display for smart glasses that shows whether an AI agent needs
 the wearer's attention. Raven Prism uses Python and the proprietary Raven
-Framework. Brilliant Labs Halo uses Lua and the public Brilliant SDK. The
-language-neutral contract under `core/` is the boundary; platform runtimes do
-not import one another.
+Framework. Brilliant Labs Halo uses Lua and the public Brilliant SDK.
+MemoMind One adapter is a paired glasses-side C GMP and phone-side JavaScript
+MMPKG built with the public MemoMind plugin SDK. The language-neutral contract
+under `core/` is the boundary; platform runtimes do not import one another.
 
 ## The rule that shapes every file
 
@@ -46,6 +47,16 @@ So every decision worth testing lives in a module that does not import the frame
 | `platforms/halo/app/ui_*.lua` | Halo emulator only | Halo's 256×256 layout and drawing |
 | `platforms/halo/app/adapter_*.lua` | Halo emulator only | Brilliant display, input and Bluetooth calls |
 | `platforms/halo/host/contract.py` | no | test-side Halo message framing; not a live gateway bridge |
+| `platforms/memomind/glasses/src/protocol.*` | no | bounded canonical-v2 task/decision/result wire codec |
+| `platforms/memomind/glasses/src/round_trip.*` | no | retained minimal-probe fixture used by protocol regression tests |
+| `platforms/memomind/glasses/src/agent_hud_state.*` | no | SDK-independent Agent HUD states, confirmation snapshot and decision effects |
+| `platforms/memomind/glasses/src/agent_hud_view.*` | no | bounded text view; unknown boot is quiet and a confirmed disconnect is visible |
+| `platforms/memomind/glasses/src/agent_hud_theme.*` | no | state-specific compact/content/card presentation policy |
+| `platforms/memomind/glasses/src/input_mapping.*` | no | candidate A/B physical-input normalization; head motion never confirms |
+| `platforms/memomind/glasses/src/agent_hud.c` | MemoMind GlassSDK | GMP lifecycle, LVGL rendering, buttons and Bluetooth binding |
+| `platforms/memomind/phone/src/protocol.js` | no | matching JavaScript wire codec |
+| `platforms/memomind/phone/src/round-trip.js` | no | phone receipt validation, stale and duplicate rejection |
+| `platforms/memomind/phone/src/agent-hud.js` | MemoMind PhoneSDK | Web plugin lifecycle and bridge binding |
 
 When you add behaviour, ask which side of that line it belongs on. Almost always it is the framework-free side.
 
@@ -310,6 +321,20 @@ Halo has an isolated environment because its public emulator requires Python
 platform's README. The SDK belongs under ignored `platforms/halo/vendor/` and
 must never be committed.
 
+MemoMind uses a separately pinned public SDK. From `platforms/memomind/`, run
+`npm test` and `python -m pytest tests -q`; on Windows,
+`tools/prepare-studio.ps1` also builds, packages and checks the pair. The exact
+commands and claim boundaries are in that platform's README. Keep the SDK under ignored
+`platforms/memomind/vendor/plugin-open-platform/`; never commit the copied Web
+runtime, `.gmp` or `.mmpkg` outputs. A successful builder run is SDK-contract
+evidence, not simulator or hardware evidence.
+
+MemoMind Desktop Studio runtime traces are under the ignored
+`platforms/memomind/vendor/plugin-open-platform/Studio/logs/` directory. A run
+uses matching `studio-*`, `phonesdk-*` and `glasssdk-*` filenames with the same
+timestamp/process suffix. Summarize durable evidence in
+`docs/memomind-m1-5-results.md`; do not commit the raw SDK logs.
+
 Screen tests skip when the framework is absent. That is intended.
 
 Two rules learned the hard way:
@@ -343,6 +368,9 @@ From the design spec, and not open for reinterpretation:
 - **Never commit the Raven Framework.** It is proprietary and gitignored. Do not add any part of it.
 - **Never commit the Brilliant SDK.** It is a separate public dependency pinned
   for Halo tests. Keep it under `platforms/halo/vendor/brilliant_sdk/`.
+- **Never commit the MemoMind SDK or packages.** Keep the pinned SDK under
+  `platforms/memomind/vendor/plugin-open-platform/` and generated artifacts in
+  ignored platform build/artifact directories.
 - **Never commit credentials.** No API keys, no `app_id`, no `app_key`, no machine names or internal addresses.
 - **Never commit agent state.** Claude/Codex transcripts, hook state, OpenCode
   databases and hand-edited tasks are runtime data. Keep them in their ignored

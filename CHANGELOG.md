@@ -7,6 +7,32 @@ hardware. The Raven Framework supports deployment; doing so needs Raven-issued
 application credentials and a device, neither of which this project has yet.
 
 ### Added
+- MemoMind One as a third, experimental in-repository ecosystem: a paired C
+  glasses GMP and JavaScript phone MMPKG built against a pinned public SDK.
+- A MemoMind M1.5 minimal round-trip contract with shared C/JavaScript vectors,
+  explicit single-tap/confirm separation, stale-revision rejection and
+  exactly-once decision handling.
+- MemoMind Desktop Studio evidence for the paired M1.5 flow: single tap changes
+  focus without sending, double tap returns `42 / 3 / test` exactly once, replay
+  is rejected, and the final pair produces an installable QR bundle.
+- The MemoMind phone manifest now declares `device.info`, matching its
+  `device.getInfo()` call and removing the Studio `UNDECLARED` startup error.
+- A MemoMind M2A native C state machine that runs every shared decision
+  lifecycle vector, preserves confirmation/revision safety and resets to quiet
+  without restoring a send intent.
+- MemoMind M2B display/input adapters plus a compiled paired flow where the
+  phone returns a correlated application result before the glasses show
+  `Sent`; the Mapping B path completed in Desktop Studio.
+- A MemoMind canonical-v2 envelope carrying session, 53-bit revision, display
+  text and the exact offered action set across matching C and JavaScript codecs.
+- MemoMind accepted/duplicate/stale/rejected/delivery-unknown result handling,
+  with retry requiring a fresh confirmation and reusing the frozen decision ID.
+- Native safety journeys for both MemoMind input mappings, including head
+  motion that cannot confirm and restart from confirmation with no send intent.
+- State-specific MemoMind LVGL layouts and a one-command Studio preparation
+  script; corrected renderer captured and visually approved in Desktop Studio.
+- An independent MemoMind CI path that builds both packages and checks their
+  paired metadata without committing SDK or generated artifacts.
 - Brilliant Labs Halo as an in-repository Lua platform, imported as a clean
   MIT-licensed export without private history or vendor SDK source.
 - A dedicated Halo emulator environment, 49 adapter/contract/input tests,

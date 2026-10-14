@@ -90,6 +90,48 @@ jobs:
       - name: Check generated files stay outside version control
         run: git diff --exit-code
 
+  memomind-sdk-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install test dependency
+        run: python -m pip install pytest
+
+      - name: Fetch the pinned MemoMind public SDK
+        run: |
+          git clone --filter=blob:none https://github.com/memomind-open/plugin-open-platform.git platforms/memomind/vendor/plugin-open-platform
+          git -C platforms/memomind/vendor/plugin-open-platform checkout f74ee53eb70b008e665adfd81ff8a78a344a4ecb
+
+      - name: Test MemoMind protocol, core, adapters and guards
+        working-directory: platforms/memomind
+        run: |
+          npm test
+          python -m pytest tests -q
+
+      - name: Build the glasses package with the official SDK
+        run: python platforms/memomind/vendor/plugin-open-platform/GlassSDK/build.py build --project platforms/memomind/glasses
+
+      - name: Build the phone package
+        run: |
+          mkdir -p platforms/memomind/phone/vendor platforms/memomind/artifacts
+          cp platforms/memomind/vendor/plugin-open-platform/PhoneSDK/examples/life-desk/vendor/gm-plugin-web-sdk.esm.js platforms/memomind/phone/vendor/
+          node platforms/memomind/vendor/plugin-open-platform/PhoneSDK/tools/build-mmpkg.mjs platforms/memomind/phone platforms/memomind/artifacts/agent-hud.mmpkg
+
+      - name: Check paired package metadata
+        run: python platforms/memomind/vendor/plugin-open-platform/.agents/skills/memomind-example-app/scripts/check_pair.py --web platforms/memomind/artifacts/agent-hud.mmpkg --glass platforms/memomind/glasses/manifest.json --gmp platforms/memomind/glasses/.build/glasses/glasses.gmp
+
+      - name: Check generated files stay outside version control
+        run: git diff --exit-code
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
@@ -117,6 +159,10 @@ jobs:
           fi
           if git ls-files | grep -qi '^platforms/halo/vendor/'; then
             echo "Brilliant SDK source found in the repository."
+            exit 1
+          fi
+          if git ls-files | grep -qi '^platforms/memomind/vendor/'; then
+            echo "MemoMind SDK source found in the repository."
             exit 1
           fi
           echo "Clean."

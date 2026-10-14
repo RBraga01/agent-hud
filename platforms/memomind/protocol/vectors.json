@@ -1,0 +1,36 @@
+{
+  "request": {
+    "value": {
+      "session_id": "session-abc",
+      "task_id": "task-42",
+      "revision": 9007199254740991,
+      "title": "Review deploy?",
+      "short_context": "Tests passed.",
+      "actions": [
+        { "action_id": "approve", "label": "Approve" },
+        { "action_id": "inspect", "label": "Inspect" }
+      ]
+    },
+    "hex": "41480201005a0b73657373696f6e2d616263077461736b2d3432001fffffffffffff0e526576696577206465706c6f793f0d5465737473207061737365642e0207617070726f766507417070726f766507696e737065637407496e7370656374"
+  },
+  "decision": {
+    "value": {
+      "decision_id": "session-abc:1",
+      "task_id": "task-42",
+      "revision": 9007199254740991,
+      "action_id": "inspect"
+    },
+    "hex": "4148020200260d73657373696f6e2d6162633a31077461736b2d3432001fffffffffffff07696e7370656374"
+  },
+  "result": {
+    "value": {
+      "decision_id": "session-abc:1",
+      "task_id": "task-42",
+      "revision": 9007199254740991,
+      "status": "ACCEPTED",
+      "original_status": null,
+      "reason": ""
+    },
+    "hex": "4148020300220d73657373696f6e2d6162633a31077461736b2d3432001fffffffffffff01000000"
+  }
+}
