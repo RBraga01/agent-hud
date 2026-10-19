@@ -2,11 +2,11 @@
 
 import pytest
 import requests
+from test_companion_contract import validator
+from test_companion_endpoint import PATH, _serve
 
 from agent_hud.config import Settings
 from feeders import FileFeederError, collect_with_evidence
-from tests.test_companion_contract import validator
-from tests.test_companion_endpoint import PATH, _serve
 
 
 def _settings(*feeders):

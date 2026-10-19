@@ -68,6 +68,7 @@ selecting any device; a regression test covers this write-after-error case.
 Verification on 2026-10-19, local branch `feat/companion-gateway-phase0`:
 
 - `.venv\Scripts\python.exe -m pytest -q --cov=agent_hud --cov=feeders --cov=stub_server --cov-report=term`: 961 passed, 2 skipped, 91.25% coverage.
+- `.venv\Scripts\pytest.exe -q --cov --cov-report=term` (the CI entry-point form): 961 passed, 2 skipped, 91.25% coverage. Companion tests use the repository's existing top-level test-helper import convention so collection also works on Linux.
 - `.venv\Scripts\ruff.exe check .`: all checks passed.
 - `.venv\Scripts\python.exe -m pytest tests/test_publication_hygiene.py -q`:
   4 passed.

@@ -5,11 +5,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+from test_companion_contract import validator
 
 from stub_server.refresher import CollectionReport, Refresher
 from stub_server.server import create_server
 from stub_server.store import TaskStore
-from tests.test_companion_contract import validator
 
 PATH = "/v1/companion/snapshots/current"
 TASK = {

@@ -4,6 +4,7 @@ import threading
 import time
 
 import requests
+from test_companion_contract import validator
 
 from stub_server.auth import Credential
 from stub_server.companion_contract import validate_snapshot_semantics
@@ -11,7 +12,6 @@ from stub_server.presence import PresenceMonitor
 from stub_server.refresher import CollectionReport, Refresher
 from stub_server.server import create_server
 from stub_server.store import TaskStore
-from tests.test_companion_contract import validator
 
 PATH = "/v1/companion/snapshots/current"
 
