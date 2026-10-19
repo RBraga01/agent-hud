@@ -1,7 +1,7 @@
 # Agent HUD companion app — UX design
 
 Date: 2026-10-19
-Status: proposed for user review; no implementation approved
+Status: visual direction approved; interaction and safety spec under user review; no implementation approved
 
 ## Product role
 
@@ -13,7 +13,7 @@ This design targets Android first with an iOS-ready shared layout. It does not c
 
 ## Principles and boundaries
 
-1. Quiet is verified, not inferred: a complete empty gateway response is different from unreachable, malformed, truncated, or stale data.
+1. Quiet is verified, not inferred: a complete, current empty gateway response is different from unreachable, malformed, truncated, stale, or out-of-order data. None of those failure cases can authorize a decision send.
 2. Selecting a decision action never sends it. Only a separate confirmation does.
 3. “Enviado ao gateway” means gateway acceptance, not completion of the agent's later work.
 4. The phone never chooses another gateway automatically. Every screen and notification identifies the selected environment.
@@ -23,8 +23,8 @@ This design targets Android first with an iOS-ready shared layout. It does not c
 
 ## Visual direction and navigation
 
-- Light theme: Warm Clarity (B), warm ivory surface, dark ink text, restrained coral action accent and teal connection accent.
-- Dark theme: Quiet Signal (A), midnight/navy surfaces, light text and restrained cyan connection accent. Both themes use identical information hierarchy, text, icon shapes and interactions. Follow the OS theme by default; provide a manual override in settings.
+- Light theme: Warm Clarity (B), warm ivory surface, dark ink text, restrained coral action accent and teal connection accent. Approved as a visual direction, not as a validated implementation.
+- Dark theme: Quiet Signal (A), midnight/navy surfaces, light text and restrained cyan connection accent. Approved as a visual direction, not as a validated implementation. Both themes use identical information hierarchy, text, icon shapes and interactions. Follow the OS theme by default; provide a manual override in settings.
 - Green/teal means a connection was just verified; amber means partial, stale or attention needed; red is reserved for a failed connection or send. Every meaning also has an icon and explicit text.
 - Minimum touch target: 48 by 48 logical pixels. Respect large text and reduced-motion settings. Long detail text scrolls within the page; fixed confirmation controls remain accessible.
 - Bottom navigation: Estado, Ligações, Ajuda. Ligações contains Gateway, Óculos and Fontes; Ajuda opens the recovery guides for the selected environment and device. The earlier “Dispositivos” mockup label is superseded by “Ligações” because sources and gateway need equal access.
@@ -42,7 +42,7 @@ Continuity copy: “Óculos indisponíveis” / “Última ligação há {tempo}
 
 Gateway failure copy: “Gateway inacessível” / “Última sincronização: {hora}” / “Não é possível confirmar pedidos neste momento” / “Diagnosticar ligação”. A stale zero is never rendered as “0 pendentes”.
 
-Incomplete-response copy: “Não foi possível confirmar todos os pedidos” / “Tentar novamente”. Previously known requests may be shown as last-known information with a timestamp; sending is disabled until a complete current read succeeds.
+Incomplete-response copy: “Não foi possível confirmar todos os pedidos” / “Atualizar estado”. Old or out-of-order copy: “Informação por confirmar” / “Atualizar estado”. Previously known requests may be shown as last-known information with a timestamp; sending is disabled until a complete current read succeeds. “Atualizar estado” only fetches data; it never resends a decision.
 
 ## Initial setup flow
 
@@ -76,7 +76,11 @@ Screen title: “Verificar configuração”. Primary action: “Fazer teste”.
 
 Entry condition: the selected glasses are not paired or have remained unavailable long enough to avoid a transient-disconnect alert, while the selected gateway is reachable. The phone displays the continuity layout. If the gateway is also unreachable, it shows recovery only: no current count, no decision submission, no claim that agents are still running.
 
-Tap “Rever pedido” -> fetch its current task and revision -> show source, title, full detail, last update and exactly the gateway-offered actions -> select an action -> separate confirmation showing the action and task title -> “Confirmar envio” sends. “Cancelar” exits without sending. During the send, show “A enviar…” and disable repeated submission. If the revision changed, show “O pedido mudou. Leia-o novamente.” and return to detail. On acceptance, show “Enviado ao gateway”; on rejected action, show “O gateway recusou esta ação”; on unknown delivery, show “Não sabemos se o pedido chegou ao gateway”. Only the unknown-delivery case offers “Tentar novamente”, and it must reuse the same decision ID. Repeated taps while sending cannot create a second decision.
+Tap “Rever pedido” -> fetch its current task and revision from a complete, current gateway response -> show source, title, full detail, last update and exactly the gateway-offered actions -> select an action -> separate confirmation showing the action and task title -> “Confirmar envio” revalidates the same selected gateway, task revision and offered action against a new complete, in-order read, then sends only if they still match. “Cancelar” exits without sending. During revalidation and send, show “A verificar e enviar…” and disable repeated submission. If the revision changed, show “O pedido mudou. Leia-o novamente.” and return to detail. On acceptance, show “Enviado ao gateway”; on rejected action, show “O gateway recusou esta ação”; on unknown delivery, show “Não sabemos se o pedido chegou ao gateway”. Repeated taps while sending cannot create a second decision.
+
+Unknown delivery has no direct “Tentar novamente” control. Its only forward action is “Rever pedido”. This triggers a new complete, current fetch and shows the full request, the previously selected action, and the fact that delivery was not confirmed. If the task is absent, changed, incomplete, stale, out of order, or the chosen action is no longer offered, the old attempt cannot be resent. If the same task, revision, content, and offered action are verified, the user deliberately selects the action again and passes through a separate confirmation headed “Confirmar nova tentativa”. Only that final confirmation may resend, using the original decision ID. This mirrors the glasses' review-before-retry protection; returning to the app, tapping a notification, or refreshing status never resends anything.
+
+For every read, the app records the selected gateway identity, a local request sequence, the gateway snapshot version, the highest observed version for that gateway, the task revision, completeness, and observation time. A response to an earlier request that arrives after a newer one is discarded. A lower snapshot version or lower task revision is marked “Informação por confirmar”, not accepted as current. Missing/invalid version, malformed data, truncation, failed source, or a snapshot observed before the latest foreground entry/resume cannot produce a verified empty state or enable “Confirmar envio”. A fresh, complete read is required both on opening a decision and immediately after the final confirmation; the gateway's revision check handles any race between that read and the send. Switching gateways clears this comparison state and requires an explicit new selection and fresh read. The gateway's own revision and decision-ID checks remain the final safeguard; the phone's UI gates do not replace them.
 
 The phone never says “Aprovado”, “Concluído”, or “Implementado” solely because a send was accepted. A later verified task update can report later work. Device reconnection refreshes current gateway data before returning to normal Home; it does not replay or silently transfer any decision.
 
@@ -101,4 +105,8 @@ This spec fixes the experience, not current implementation status. A future impl
 
 Before implementation, the state map in design/ai-states/agent-hud-companion.md is normative for gateway-derived decision information. Since the companion does not stream model tokens or generate AI responses, it must not fabricate a streaming animation or answer-confidence claim.
 
-Acceptance for this design: a new user can connect or diagnose a gateway, defer glasses, understand exactly what remains incomplete, add available sources, run an honest test, and, only in continuity mode with a verified gateway, review and deliberately answer a pending decision. Normal mode remains a connection tool, not an agent dashboard.
+Visual validation gate: the concept mockups are not acceptance evidence. Before release, capture and inspect the actual continuity, decision detail, confirmation, unknown-delivery, incomplete/stale/out-of-order, and gateway-error screens in both themes at normal and 200% text scale on a narrow Android phone. Verify measured contrast for text and controls, screen-reader reading/focus order, touch targets, long translated labels and long task detail, reduced motion, and that no status depends on colour alone. Record any failures and fix them before claiming accessibility or shipping these flows.
+
+Safety acceptance scenarios: an unknown-delivery screen has no direct resend; a retry path opens full current detail, requires choosing the action again, and requires a separate confirmation while preserving the decision ID. A late older response never replaces a newer state. Empty/malformed/truncated/lower-version responses never render “Sem decisões pendentes agora” or enable sending. Suspending and resuming the app invalidates confirmation until a fresh complete read. A changed task or action blocks the old decision, even when the user has already reached confirmation.
+
+Acceptance for this design: a new user can connect or diagnose a gateway, defer glasses, understand exactly what remains incomplete, add available sources, run an honest test, and, only in continuity mode with a verified gateway, review and deliberately answer a pending decision. An unknown delivery requires fresh review and separate confirmation before a safe retry. An incomplete, old or out-of-order response cannot authorize a send or look empty. Normal mode remains a connection tool, not an agent dashboard.
