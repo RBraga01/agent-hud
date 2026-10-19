@@ -5,10 +5,10 @@ put an executable button on someone's face by naming one, because the
 gateway checks every incoming answer against the actions *it* would have
 offered for that task, not against whatever the request claims.
 
-Three checks, in order, and the order matters:
+Checks run under one lock, in order, and the order matters:
 
-1. **Have I already handled this request?** A retry after an uncertain
-   network must get the first answer back, not act a second time.
+1. **Have I already handled this request?** An identical retry after an
+   uncertain network gets the first answer back. Changed content conflicts.
 2. **Is this still the task they were looking at?** A revision behind the
    current one is refused, so nobody approves a description that changed
    while they were reading it.
@@ -21,6 +21,8 @@ something whose job is to let you run the app without accounts.
 
 from __future__ import annotations
 
+import json
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -37,6 +39,7 @@ class _Handled:
 
     status: int
     payload: dict
+    content: tuple[str, str]
 
 
 @dataclass
@@ -52,6 +55,7 @@ class Policy:
     provider: Callable[[], list[dict]]
     _handled: dict[str, _Handled] = field(default_factory=dict)
     _resolved: dict[str, int] = field(default_factory=dict)
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     # -- reading --------------------------------------------------------
 
@@ -63,17 +67,18 @@ class Policy:
         moves at the same time, which is what tells a glasses client
         holding the old one that it is looking at something out of date.
         """
-        out = []
-        for task in self.provider():
-            task = dict(task)
-            answered = self._resolved.get(str(task.get("id")))
-            if answered is not None and answered >= int(task.get("revision", 0)):
-                task["revision"] = answered + 1
-                task["needs_you"] = False
-                task["summary"] = "answered"
-                task["actions"] = {}
-            out.append(task)
-        return out
+        with self._lock:
+            out = []
+            for task in self.provider():
+                task = dict(task)
+                answered = self._resolved.get(str(task.get("id")))
+                if answered is not None and answered >= int(task.get("revision", 0)):
+                    task["revision"] = answered + 1
+                    task["needs_you"] = False
+                    task["summary"] = "answered"
+                    task["actions"] = {}
+                out.append(task)
+            return out
 
     def find_public(self, task_id: str) -> dict | None:
         """One task as this gateway currently sees it, or None."""
@@ -90,19 +95,28 @@ class Policy:
         if not isinstance(request_id, str) or not request_id:
             return 400, {"error": "request_id is required"}
 
-        # 1. Already handled? Give back exactly what we gave last time.
-        seen = self._handled.get(request_id)
-        if seen is not None:
-            return seen.status, dict(seen.payload, replayed=True)
+        try:
+            content = (task_id, json.dumps(body, sort_keys=True, allow_nan=False))
+        except (TypeError, ValueError):
+            return 400, {"error": "body must be valid JSON"}
 
-        status, payload = self._judge(task_id, body)
+        with self._lock:
+            # Lookup, judgment, effect and registration are one critical section.
+            seen = self._handled.get(request_id)
+            if seen is not None:
+                if seen.content != content:
+                    return 409, {
+                        "error": "request_id content changed",
+                        "code": "id_conflict",
+                    }
+                return seen.status, dict(seen.payload, replayed=True)
 
-        # Only decisions are remembered. An "I do not know" is not a
-        # decision, and remembering it would make a legitimate retry fail
-        # forever.
-        if status < 500:
-            self._remember(request_id, status, payload)
-        return status, payload
+            status, payload = self._judge(task_id, body)
+
+            # A 5xx/unknown result is not a decision: allow a later retry.
+            if status < 500:
+                self._remember(request_id, status, payload, content)
+            return status, payload
 
     def _judge(self, task_id: str, body: dict) -> tuple[int, dict]:
         task = self._find(task_id)
@@ -180,9 +194,13 @@ class Policy:
     def _resolve(self, task: dict) -> None:
         self._resolved[str(task.get("id"))] = int(task.get("revision", 0))
 
-    def _remember(self, request_id: str, status: int, payload: dict) -> None:
+    def _remember(
+        self, request_id: str, status: int, payload: dict, content: tuple[str, str]
+    ) -> None:
         if len(self._handled) >= MAX_REMEMBERED:
             # Drop the oldest. Python dicts keep insertion order, so the
             # first key is the one least recently added.
             self._handled.pop(next(iter(self._handled)))
-        self._handled[request_id] = _Handled(status=status, payload=dict(payload))
+        self._handled[request_id] = _Handled(
+            status=status, payload=dict(payload), content=content
+        )

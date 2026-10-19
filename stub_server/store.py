@@ -19,15 +19,7 @@ already seen, so a source that both polls and pushes cannot double a row.
 from __future__ import annotations
 
 import threading
-
-
-def _key_ids(tasks: list[dict]) -> tuple:
-    """A cheap fingerprint of a slice, for spotting a no-op replace."""
-    return tuple(
-        (str(t.get("id")), t.get("revision"), t.get("needs_you"))
-        for t in tasks
-        if isinstance(t, dict)
-    )
+from copy import deepcopy
 
 
 class TaskStore:
@@ -35,7 +27,6 @@ class TaskStore:
 
     def __init__(self) -> None:
         self._slices: dict[str, list[dict]] = {}
-        self._prints: dict[str, tuple] = {}
         self._version = 0
         self._lock = threading.Lock()
 
@@ -47,17 +38,14 @@ class TaskStore:
     def replace(self, key: str, tasks: list[dict]) -> bool:
         """Set the slice for ``key``. Returns True if anything changed.
 
-        A replace that fingerprints the same as the slice already there
-        does not move the version -- a client polling on the version can
-        then tell a real change from a feeder that simply ran again.
+        Identical full content does not move the version. A title, detail
+        or offered-action edit matters even if id/revision did not change.
         """
-        clean = [dict(t) for t in tasks if isinstance(t, dict)]
-        fingerprint = _key_ids(clean)
+        clean = [deepcopy(t) for t in tasks if isinstance(t, dict)]
         with self._lock:
-            if self._prints.get(key) == fingerprint and key in self._slices:
+            if key in self._slices and self._slices[key] == clean:
                 return False
             self._slices[key] = clean
-            self._prints[key] = fingerprint
             self._version += 1
             return True
 
@@ -67,14 +55,13 @@ class TaskStore:
             if key not in self._slices:
                 return False
             del self._slices[key]
-            self._prints.pop(key, None)
             self._version += 1
             return True
 
     def snapshot(self) -> list[dict]:
         """The whole list, slices in first-written order, ids deduped."""
         with self._lock:
-            slices = [list(v) for v in self._slices.values()]
+            slices = deepcopy(list(self._slices.values()))
         out: list[dict] = []
         seen: set[str] = set()
         for slice_ in slices:
@@ -83,7 +70,7 @@ class TaskStore:
                 if tid in seen:
                     continue
                 seen.add(tid)
-                out.append(dict(task))
+                out.append(task)
         return out
 
 

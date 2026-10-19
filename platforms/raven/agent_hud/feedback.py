@@ -233,6 +233,9 @@ def send_feedback(
     except ValueError:
         fields = {}
 
+    if response.status_code == 409 and fields.get("code") == "id_conflict":
+        outcome = SendOutcome.REJECTED
+
     reason = ""
     if outcome is not SendOutcome.ACCEPTED:
         reason = str(

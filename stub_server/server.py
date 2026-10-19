@@ -28,7 +28,6 @@ import os
 import secrets
 import ssl
 import threading
-import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -200,6 +199,11 @@ class _TasksHandler(BaseHTTPRequestHandler):
         own files are open; everything that reads your work or acts on
         your behalf needs a session.
         """
+        device = self.server.auth.device_for(self.headers.get(DEVICE_HEADER))
+        if device is not None:
+            # Generic phone/browser reads are never evidence of glasses presence.
+            self.server.device_last_seen = int(device.last_seen)
+
         if not self.server.require_auth:
             return True
         if path.startswith(AUTH_PREFIX) or path.startswith(CONTROL_PREFIX):
@@ -211,7 +215,7 @@ class _TasksHandler(BaseHTTPRequestHandler):
         # session, because there is no browser on them and no sensor to
         # prove anything with. It is issued from Control by somebody who
         # has just proved themselves, and revoked there.
-        if self.server.auth.device_for(self.headers.get(DEVICE_HEADER)):
+        if device is not None:
             return True
 
         return self.server.auth.is_signed_in(self._session_token())
@@ -534,12 +538,6 @@ class _TasksHandler(BaseHTTPRequestHandler):
         if path != TASKS_PATH:
             self._respond(404, {"error": "not found"})
             return
-
-        # Any client asking for the list counts as the device being
-        # around. The development gateway has no pairing, so there is
-        # nothing better to go on and nothing is claimed beyond "somebody
-        # asked recently".
-        self.server.device_last_seen = int(time.time())
 
         try:
             tasks = self.server.policy.tasks()

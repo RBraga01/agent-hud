@@ -169,6 +169,13 @@ def test_a_stale_revision_is_its_own_outcome():
     assert result.reason != ""
 
 
+def test_reused_id_with_changed_content_is_rejected_not_called_stale():
+    result = _send(_answering(409, {"code": "id_conflict"}))
+
+    assert result.outcome is SendOutcome.REJECTED
+    assert result.can_retry is False
+
+
 def test_an_action_the_gateway_will_not_accept_is_rejected():
     result = _send(_answering(422, {"error": "unknown action"}))
 

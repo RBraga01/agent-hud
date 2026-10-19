@@ -6,6 +6,10 @@ answers to a version of a task that has moved on, and never carrying out
 the same request twice.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from time import sleep
+
 import pytest
 
 from stub_server.policy import Policy
@@ -147,6 +151,48 @@ def test_the_same_request_twice_is_only_carried_out_once(policy):
 
     assert first[0] == second[0] == 200
     assert second[1]["replayed"] is True
+
+
+@pytest.mark.parametrize(
+    "task_id,changed",
+    [
+        ("task-17", {"action_id": "reject"}),
+        ("task-17", {"revision": 5}),
+        ("another-task", {}),
+        ("task-17", {"client_type": "phone"}),
+    ],
+)
+def test_same_request_id_with_different_content_conflicts(policy, task_id, changed):
+    policy.receive("task-17", action())
+
+    status, payload = policy.receive(task_id, action(**changed))
+
+    assert status == 409
+    assert payload["code"] == "id_conflict"
+    assert payload.get("replayed") is not True
+
+
+def test_simultaneous_decisions_for_one_revision_cannot_both_succeed(policy):
+    original_resolve = policy._resolve
+    start = Barrier(3)
+
+    def slow_resolve(task):
+        sleep(0.05)
+        original_resolve(task)
+
+    policy._resolve = slow_resolve
+
+    def send(request_id):
+        start.wait()
+        return policy.receive("task-17", action(request_id=request_id))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(send, "race-a")
+        second = pool.submit(send, "race-b")
+        start.wait()
+        results = [first.result(), second.result()]
+
+    assert sorted(status for status, _ in results) == [200, 409]
 
 
 def test_a_replay_gets_the_original_answer_even_after_the_task_moves_on(policy):
