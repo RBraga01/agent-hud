@@ -27,6 +27,23 @@ def test_two_failures_close_together_do_not_prove_a_minute_of_absence():
     assert monitor.state("paired-1", at=1072)["health"] == "unavailable"
 
 
+def test_negative_presence_evidence_expires_and_new_failure_starts_a_new_run():
+    monitor = PresenceMonitor()
+    monitor.observe("paired-1", True, at=1000)
+    monitor.observe("paired-1", False, at=1012)
+    monitor.observe("paired-1", False, at=1072)
+
+    assert monitor.state("paired-1", at=1072)["health"] == "unavailable"
+    assert monitor.state("paired-1", at=1192)["health"] == "unavailable"
+    assert monitor.state("paired-1", at=1192.001)["health"] == "unknown"
+
+    monitor.observe("paired-1", False, at=5000)
+    restarted = monitor.state("paired-1", at=5000)
+    assert restarted["health"] == "unknown"
+    assert restarted["failed_observations"] == 1
+    assert restarted["absence_started_at"] == 5000
+
+
 def _gateway(clock, checker, auth_path=None):
     store = TaskStore()
     refresher = Refresher(
@@ -131,6 +148,13 @@ def test_authenticated_selection_and_link_state_transitions():
         assert unavailable["selected_device"]["health"] == "unavailable"
         assert unavailable["selected_device"]["failed_observations"] == 2
 
+        moment["at"] += 121
+        expired = _snapshot(base, cookie)
+        assert expired["selected_device"]["health"] == "unknown"
+        assert expired["version"] > unavailable["version"]
+        assert server.poll_selected_link() is False
+        assert _snapshot(base, cookie)["selected_device"]["failed_observations"] == 1
+
         link["up"] = True
         moment["at"] += 1
         assert server.poll_selected_link() is True
@@ -220,6 +244,51 @@ def test_revocation_during_link_probe_discards_late_result():
         assert _snapshot(base, cookie)["selected_device"] is None
     finally:
         release.set()
+        stop()
+
+
+def test_newer_negative_probe_cannot_be_overwritten_by_late_positive():
+    old_entered = threading.Event()
+    release_old = threading.Event()
+    calls = {"count": 0}
+
+    def checker(device):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return True
+        if calls["count"] == 2:
+            old_entered.set()
+            assert release_old.wait(timeout=5)
+            return True
+        return False
+
+    base, cookie, refresher, server, stop = _gateway(time.time, checker)
+    try:
+        refresher.sweep_once()
+        paired = requests.post(
+            base + "/auth/devices/pair", cookies=cookie,
+            json={"name": "test glasses"}, timeout=5,
+        )
+        assert paired.status_code == 200
+        assert server.poll_selected_link() is True
+
+        observed = {}
+        worker = threading.Thread(
+            target=lambda: observed.setdefault("old", server.poll_selected_link())
+        )
+        worker.start()
+        assert old_entered.wait(timeout=5)
+        assert server.poll_selected_link() is False
+        release_old.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert observed["old"] is None
+
+        presence = _snapshot(base, cookie)["selected_device"]
+        assert presence["health"] == "unknown"
+        assert presence["failed_observations"] == 1
+    finally:
+        release_old.set()
         stop()
 
 

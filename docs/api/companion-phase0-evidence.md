@@ -32,9 +32,14 @@ device. An optional trusted link checker, injected into the gateway rather than
 exposed as an HTTP input, can record independent link checks. Its first verified
 success yields time-limited `healthy`; a failure yields `unknown`; `unavailable`
 needs two distinct failed checks at least 60 seconds apart after a prior
-verified link; a verified recovery clears the failure run. A crashed or missing
-checker adds no evidence. Phone reads never call it. The check result is scoped
-to the selected paired identity, and a late result after revocation is ignored.
+verified link. The most recent negative check remains valid for at most 120
+seconds; after that `unavailable` becomes `unknown`, and a later negative check
+starts a new absence run rather than reusing stale failures. A verified recovery
+clears the failure run. A crashed or missing checker adds no evidence. Phone
+reads never call it. Each check receives a monotonic sequence when it starts;
+results from earlier checks are discarded if a newer check has started, even
+when they complete out of order. The check result is scoped to the selected
+paired identity, and a late result after revocation is ignored.
 Pairing survives a restart; physical-link proof does not.
 
 The default gateway does **not** install a physical link checker. Thus its
@@ -51,7 +56,8 @@ authentication, schema validation, verified and incomplete empty snapshots,
 malformed input, source failure/expiry, restarts, policy decisions, content
 edits, pushed events, concurrent reads/sweeps, authenticated pairing,
 device-token activity, two timed absence checks, recovery, revocation during a
-pending probe and restart without inherited physical presence. Unsupported
+pending probe, expiry of negative evidence, reversed completion order of
+concurrent probes and restart without inherited physical presence. Unsupported
 legacy feeders are explicitly incomplete by design; supporting them is not a
 prerequisite for the Phase 0 gate. Review should focus on these behaviors and
 the executed suite, not assume physical compatibility from simulated checks.
@@ -61,7 +67,7 @@ selecting any device; a regression test covers this write-after-error case.
 
 Verification on 2026-10-19, local branch `feat/companion-gateway-phase0`:
 
-- `.venv\Scripts\python.exe -m pytest -q --cov=agent_hud --cov=feeders --cov=stub_server --cov-report=term`: 959 passed, 2 skipped, 91.23% coverage.
+- `.venv\Scripts\python.exe -m pytest -q --cov=agent_hud --cov=feeders --cov=stub_server --cov-report=term`: 961 passed, 2 skipped, 91.25% coverage.
 - `.venv\Scripts\ruff.exe check .`: all checks passed.
 - `.venv\Scripts\python.exe -m pytest tests/test_publication_hygiene.py -q`:
   4 passed.

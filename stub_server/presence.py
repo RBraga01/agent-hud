@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 PRESENCE_LEASE_SECONDS = 10.0
 MIN_ABSENCE_SECONDS = 60.0
+NEGATIVE_EVIDENCE_LEASE_SECONDS = 120.0
 
 
 @dataclass
@@ -40,6 +41,12 @@ class PresenceMonitor:
             self.last_failure_at = None
         elif self.last_verified_at is not None and at > self.last_verified_at:
             if self.last_failure_at is None or at > self.last_failure_at:
+                if (
+                    self.last_failure_at is not None
+                    and at > self.last_failure_at + NEGATIVE_EVIDENCE_LEASE_SECONDS
+                ):
+                    self.absence_started_at = None
+                    self.failed_observations = 0
                 if self.absence_started_at is None:
                     self.absence_started_at = at
                 self.failed_observations += 1
@@ -65,6 +72,9 @@ class PresenceMonitor:
             and self.failed_observations >= 2
             and self.last_failure_at is not None
             and self.last_failure_at - self.absence_started_at >= MIN_ABSENCE_SECONDS
+            and self.last_failure_at <= at <= (
+                self.last_failure_at + NEGATIVE_EVIDENCE_LEASE_SECONDS
+            )
             and self.presence_valid_until is not None
             and at > self.presence_valid_until
         )

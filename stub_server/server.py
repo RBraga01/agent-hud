@@ -889,6 +889,7 @@ class _TasksServer(ThreadingHTTPServer):
         self.presence = PresenceMonitor()
         self.gateway_instance_id = str(uuid.uuid4())
         self._snapshot_lock = threading.Lock()
+        self._link_probe_seq = 0
         self._snapshot_version = 0
         self._snapshot_fingerprint: tuple | None = None
         # The gateway owns the wearer's preferences; the glasses cache
@@ -976,8 +977,10 @@ class _TasksServer(ThreadingHTTPServer):
         with self._snapshot_lock:
             device = self.auth.selected_device()
             checker = self.link_checker
-        if device is None or checker is None:
-            return None
+            if device is None or checker is None:
+                return None
+            self._link_probe_seq += 1
+            probe_seq = self._link_probe_seq
         try:
             result = checker(device)
         except Exception:
@@ -987,7 +990,11 @@ class _TasksServer(ThreadingHTTPServer):
             return None
         with self._snapshot_lock:
             current = self.auth.selected_device()
-            if current is None or current.device_id != device.device_id:
+            if (
+                current is None
+                or current.device_id != device.device_id
+                or probe_seq != self._link_probe_seq
+            ):
                 return None
             self.presence.observe(device.device_id, result, at=self.presence_clock())
         return result
