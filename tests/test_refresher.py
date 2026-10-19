@@ -2,7 +2,7 @@
 
 import time
 
-from stub_server.refresher import POLL_KEY, Refresher
+from stub_server.refresher import POLL_KEY, CollectionReport, Refresher
 from stub_server.store import TaskStore
 
 
@@ -109,6 +109,23 @@ def test_malformed_sweep_preserves_last_good_data_but_marks_failure():
     assert store.snapshot() == [{"id": "last-good"}]
     assert r.health().state == "failed"
     assert len(errors) == 1
+
+
+def test_per_source_evidence_expires_and_does_not_ride_aggregate_success():
+    moment = {"wall": 1000.0, "mono": 10.0}
+    r = Refresher(
+        TaskStore(),
+        lambda: CollectionReport([], ("simulated",)),
+        sources=("simulated", "github"),
+        interval=5,
+        wall_clock=lambda: moment["wall"],
+        monotonic_clock=lambda: moment["mono"],
+    )
+    assert r.sweep_once()
+    assert [s["state"] for s in r.observation()[3]] == ["healthy", "failed"]
+    moment["wall"] += 11
+    moment["mono"] += 11
+    assert [s["state"] for s in r.observation()[3]] == ["overdue", "failed"]
 
 
 def test_non_list_sweep_is_failure_not_verified_empty():

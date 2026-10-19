@@ -57,6 +57,7 @@ class Policy:
     provider: Callable[[], list[dict]]
     _handled: dict[str, _Handled] = field(default_factory=dict)
     _resolved: dict[str, int] = field(default_factory=dict)
+    _projection_version: int = 0
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     # -- reading --------------------------------------------------------
@@ -70,8 +71,13 @@ class Policy:
         holding the old one that it is looking at something out of date.
         """
         with self._lock:
+            return self.project(self.provider())
+
+    def project(self, tasks: list[dict]) -> list[dict]:
+        """Apply resolved decisions to a supplied atomic store observation."""
+        with self._lock:
             out = []
-            for task in self.provider():
+            for task in tasks:
                 task = dict(task)
                 answered = self._resolved.get(str(task.get("id")))
                 if answered is not None and answered >= int(task.get("revision", 0)):
@@ -200,6 +206,7 @@ class Policy:
 
     def _resolve(self, task: dict) -> None:
         self._resolved[str(task.get("id"))] = int(task.get("revision", 0))
+        self._projection_version += 1
 
     def _remember(
         self, request_id: str, status: int, payload: dict, content: tuple[str, str]

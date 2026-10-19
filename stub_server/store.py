@@ -60,18 +60,28 @@ class TaskStore:
 
     def snapshot(self) -> list[dict]:
         """The whole list, slices in first-written order, ids deduped."""
-        with self._lock:
-            slices = deepcopy(list(self._slices.values()))
+        return self.snapshot_with_version()[1]
+
+    def snapshot_with_version(self) -> tuple[int, list[dict], tuple[str, ...]]:
+        """Copy the version, projection and slice identities under one lock."""
+        version, raw, keys = self.raw_snapshot_with_version()
         out: list[dict] = []
         seen: set[str] = set()
-        for slice_ in slices:
-            for task in slice_:
-                tid = str(task.get("id"))
-                if tid in seen:
-                    continue
-                seen.add(tid)
-                out.append(task)
-        return out
+        for task in raw:
+            tid = str(task.get("id"))
+            if tid in seen:
+                continue
+            seen.add(tid)
+            out.append(task)
+        return version, out, keys
+
+    def raw_snapshot_with_version(self) -> tuple[int, list[dict], tuple[str, ...]]:
+        """Do not hide duplicate tasks from the companion's validator."""
+        with self._lock:
+            version = self._version
+            keys = tuple(self._slices)
+            slices = deepcopy(list(self._slices.values()))
+        return version, [task for slice_ in slices for task in slice_], keys
 
 
 __all__ = ["TaskStore"]

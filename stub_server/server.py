@@ -28,7 +28,10 @@ import os
 import secrets
 import ssl
 import threading
+import time
+import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -43,10 +46,12 @@ from .auth import (
     verify_authentication,
     verify_registration,
 )
+from .companion_contract import normalize_tasks, validate_snapshot_semantics
 from .drafts import DraftBook
 from .limits import RateLimiter
 from .net import LOOPBACK_HOST, is_loopback
 from .policy import Policy
+from .refresher import Refresher
 from .store import TaskStore
 from .transcription import (
     MAX_AUDIO_BYTES,
@@ -60,6 +65,7 @@ CONTROL_PREFIX = "/control/"
 AUDIO_SUFFIX = "/audio"
 DRAFTS_PATH = "/drafts"
 EVENTS_PATH = "/events"
+COMPANION_SNAPSHOT_PATH = "/v1/companion/snapshots/current"
 AUTH_PREFIX = "/auth/"
 SESSION_COOKIE = "agent_hud_session"
 DEVICE_HEADER = "X-Agent-Hud-Device"
@@ -453,13 +459,19 @@ class _TasksHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "tasks must be a list of objects"})
             return
 
-        changed = self.server.store.replace(f"push:{source.strip()}", tasks)
+        if self.server.refresher is not None:
+            changed, version = self.server.refresher.replace_push(
+                f"push:{source.strip()}", tasks
+            )
+        else:
+            changed = self.server.store.replace(f"push:{source.strip()}", tasks)
+            version = self.server.store.version
         self._respond(
             200,
             {
                 "accepted": len(tasks),
                 "changed": changed,
-                "version": self.server.store.version,
+                "version": version,
             },
         )
 
@@ -502,6 +514,24 @@ class _TasksHandler(BaseHTTPRequestHandler):
 
         if path.startswith(AUTH_PREFIX):
             self._handle_auth(path)
+            return
+
+        if path == COMPANION_SNAPSHOT_PATH:
+            if not self.server.require_auth:
+                self._respond(403, {"error": "authenticated snapshots are disabled",
+                                    "code": "snapshot_disabled"})
+                return
+            if not self.server.auth.is_signed_in(self._session_token()):
+                self._respond(401, {"error": "sign in first",
+                                    "code": "authentication_required"})
+                return
+            try:
+                snapshot = self.server.companion_snapshot()
+            except (ValueError, TypeError, KeyError):
+                self._respond(503, {"error": "consistent snapshot unavailable",
+                                    "code": "snapshot_unavailable"})
+                return
+            self._respond(200, snapshot)
             return
 
         if not self._allowed(path):
@@ -827,6 +857,7 @@ class _TasksServer(ThreadingHTTPServer):
         require_auth: bool = False,
         auth_path: Path | None = None,
         store: TaskStore | None = None,
+        refresher: Refresher | None = None,
         ssl_context: ssl.SSLContext | None = None,
         write_rate: float = DEFAULT_WRITE_RATE,
         write_burst: float = DEFAULT_WRITE_BURST,
@@ -839,6 +870,11 @@ class _TasksServer(ThreadingHTTPServer):
         # Set when the gateway keeps its own view of the list and takes
         # pushes at POST /events. None means the old shape: provider only.
         self.store = store
+        self.refresher = refresher
+        self.gateway_instance_id = str(uuid.uuid4())
+        self._snapshot_lock = threading.Lock()
+        self._snapshot_version = 0
+        self._snapshot_fingerprint: tuple | None = None
         # The gateway owns the wearer's preferences; the glasses cache
         # them. The Control app is what changes them, so this development
         # gateway simply serves a fixed, sensible set.
@@ -919,6 +955,79 @@ class _TasksServer(ThreadingHTTPServer):
 
         super().__init__(address, _TasksHandler)
 
+    def companion_snapshot(self) -> dict:
+        """Build one fail-closed, versioned observation for the owner."""
+        def stamp(value: float | None) -> str | None:
+            if value is None:
+                return None
+            return datetime.fromtimestamp(value, timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            )
+
+        with self._snapshot_lock, self.policy._lock:
+            if self.store is None:
+                store_version, tasks, keys = 0, [], ()
+                evidence_epoch, observed = 0, time.time()
+                health = [
+                    {"name": s["name"], "state": "never_checked",
+                     "last_success_at": None, "fresh_until": None}
+                    for s in self.sources if s.get("on")
+                ]
+            elif self.refresher is None:
+                store_version, tasks, keys = self.store.raw_snapshot_with_version()
+                evidence_epoch, observed = 0, time.time()
+                health = [
+                    {"name": s["name"], "state": "never_checked",
+                     "last_success_at": None, "fresh_until": None}
+                    for s in self.sources if s.get("on")
+                ]
+            else:
+                store_version, tasks, keys, health, evidence_epoch, observed = (
+                    self.refresher.observation()
+                )
+            projected = self.policy.project(tasks)
+            configured = [s["name"] for s in self.sources if s.get("on")]
+            if (len(configured) != len(set(configured))
+                    or set(configured) != {s["name"] for s in health}):
+                raise ValueError("configured source evidence mismatch")
+            health = [
+                {**s, "last_success_at": stamp(s["last_success_at"]),
+                 "fresh_until": stamp(s["fresh_until"])} for s in health
+            ]
+            complete = bool(configured) and all(
+                s["state"] == "healthy" and s["last_success_at"] is not None
+                and s["fresh_until"] is not None
+                and s["last_success_at"] <= stamp(observed) <= s["fresh_until"]
+                for s in health
+            ) and keys == ("poll",)
+            try:
+                normalized = normalize_tasks(projected)
+            except ValueError:
+                normalized = []
+                complete = False
+                health = [{**s, "state": "failed"} for s in health]
+            fingerprint = (
+                store_version, self.policy._projection_version, evidence_epoch,
+                tuple((s["name"], s["state"], s["last_success_at"]) for s in health),
+                keys,
+            )
+            if self._snapshot_fingerprint != fingerprint:
+                self._snapshot_version += 1
+                self._snapshot_fingerprint = fingerprint
+            snapshot = {
+                "gateway_instance_id": self.gateway_instance_id,
+                "version": self._snapshot_version,
+                "observed_at": stamp(observed),
+                "complete": complete,
+                "source_health": health,
+                "selected_device": None,
+                "tasks": normalized,
+                "idempotency_scope": "process_memory",
+                "decision_submission_enabled": False,
+            }
+            validate_snapshot_semantics(snapshot)
+            return snapshot
+
     def process_request(self, request, client_address) -> None:
         """Take a slot before spawning the worker, or turn the request
         away. Non-blocking: a full server closes the connection now
@@ -971,6 +1080,7 @@ def create_server(
     require_auth: bool = False,
     auth_path: Path | None = None,
     store: TaskStore | None = None,
+    refresher: Refresher | None = None,
     ssl_context: ssl.SSLContext | None = None,
     write_rate: float = DEFAULT_WRITE_RATE,
     write_burst: float = DEFAULT_WRITE_BURST,
@@ -1006,6 +1116,7 @@ def create_server(
         require_auth=require_auth,
         auth_path=auth_path,
         store=store,
+        refresher=refresher,
         ssl_context=ssl_context,
         write_rate=write_rate,
         write_burst=write_burst,
@@ -1018,7 +1129,6 @@ def create_server(
 def main() -> None:
     """Run the stub until interrupted."""
     from agent_hud.config import load_settings
-    from feeders import collect
 
     from .refresher import Refresher
 
@@ -1068,11 +1178,14 @@ def main() -> None:
     # the polled feeders on their own clock; POST /events lets a source
     # push. The request path only reads the snapshot.
     store = TaskStore()
+    from feeders import collect_with_evidence
+
     refresher = Refresher(
         store,
-        lambda: collect(settings, file_path=DEFAULT_DATA_PATH),
+        lambda: collect_with_evidence(settings, file_path=DEFAULT_DATA_PATH),
         interval=settings.refresh_seconds,
         on_error=lambda exc: print(f"feeder sweep failed: {exc}"),
+        sources=settings.feeders,
     )
     refresher.start()
 
@@ -1086,6 +1199,7 @@ def main() -> None:
             require_auth=settings.require_auth,
             auth_path=settings.auth_path,
             store=store,
+            refresher=refresher,
             ssl_context=ssl_context,
             write_rate=write_rate,
             write_burst=write_burst,

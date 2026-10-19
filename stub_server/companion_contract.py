@@ -7,7 +7,66 @@ any mobile decision permission.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
+
+_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
+
+
+def normalize_tasks(tasks: list[dict]) -> list[dict]:
+    """Strictly map the legacy glasses projection into the approved v1 shape."""
+    result = []
+    seen: set[str] = set()
+    for task in tasks:
+        if not isinstance(task, dict):
+            raise ValueError("task is not an object")
+        task_id = task.get("id")
+        revision = task.get("revision")
+        if (not isinstance(task_id, str) or not _ID.fullmatch(task_id)
+                or task_id in seen or type(revision) is not int
+                or not 0 <= revision <= 2**53 - 1):
+            raise ValueError("invalid or duplicate task identity")
+        seen.add(task_id)
+        for field in ("source", "title", "summary", "detail"):
+            value = task.get(field)
+            if not isinstance(value, str) or (
+                field in ("source", "title") and not value
+            ):
+                raise ValueError("invalid task content")
+        if type(task.get("needs_you")) is not bool:
+            raise ValueError("invalid task urgency")
+        legacy_actions = task.get("actions", {})
+        if not isinstance(legacy_actions, dict) or set(legacy_actions) - {
+            "primary", "secondary"
+        }:
+            raise ValueError("invalid task actions")
+        actions = []
+        action_ids: set[str] = set()
+        for slot in ("primary", "secondary"):
+            if slot not in legacy_actions:
+                continue
+            action = legacy_actions[slot]
+            if not isinstance(action, dict):
+                raise ValueError("invalid task action")
+            action_id = action.get("id")
+            label = action.get("label")
+            if (not isinstance(action_id, str) or not _ID.fullmatch(action_id)
+                    or action_id in action_ids or not isinstance(label, str)
+                    or not 1 <= len(label) <= 16):
+                raise ValueError("invalid or duplicate task action")
+            action_ids.add(action_id)
+            actions.append({"action_id": action_id, "label": label})
+        result.append({
+            "task_id": task_id,
+            "revision": revision,
+            "source": task["source"],
+            "title": task["title"],
+            "summary": task["summary"],
+            "detail": task["detail"],
+            "needs_you": task["needs_you"],
+            "actions": actions,
+        })
+    return result
 
 
 def _instant(value: str) -> datetime:
@@ -71,4 +130,4 @@ def validate_snapshot_semantics(snapshot: dict) -> None:
             raise ValueError("device absence threshold is unproven")
 
 
-__all__ = ["validate_snapshot_semantics"]
+__all__ = ["normalize_tasks", "validate_snapshot_semantics"]
