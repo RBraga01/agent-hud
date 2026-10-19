@@ -32,8 +32,8 @@ Deliverable: a backwards-compatible, test-covered gateway contract that distingu
 | 0.2 Contract tests | `tests/test_companion_snapshot_contract.py` | Add invented valid, empty, malformed, partial, stale, restart and same-revision-content-change vectors before server changes. | 0.1 | Low |
 | 0.3 Store version tests | `tests/test_store.py` | First prove a changed title/detail/action increments the version; identical content does not. | 0.2 | Low |
 | 0.4 Store fingerprint | `stub_server/store.py` | Version all visible content changes, not only ID/revision/needs_you; take a consistent snapshot/version pair. | 0.3 | High |
-| 0.5 Source-health tests | `tests/test_refresher.py` | Prove failed/never-run/overdue sweeps cannot be complete even if old tasks remain. | 0.2 | Medium |
-| 0.6 Source-health tracking | `stub_server/refresher.py` | Record successful/failed sweep evidence separately from cached tasks. | 0.5 | Medium |
+| 0.5 Source-health tests | `tests/test_refresher.py` | Prove failed/never-run/overdue sweeps and malformed/dropped/truncated source items cannot be complete even if old tasks remain. | 0.2 | Medium |
+| 0.6 Source-health tracking | `stub_server/refresher.py` | Record successful/failed and invalid-item evidence separately from cached tasks; never turn discarded input into a verified empty list. | 0.5 | Medium |
 | 0.7 Device identity tests | `tests/test_auth.py` | Prove only authenticated selected-glasses activity advances that device's health; phone reads do not. | 0.0 | Medium |
 | 0.8 Device health | `stub_server/auth.py` | Expose trustworthy per-device freshness/identity to snapshot policy, with revoked devices excluded. | 0.7 | High |
 | 0.9 Snapshot endpoint tests | `tests/test_companion_snapshot_contract.py` | Validate live HTTP responses against reviewed OpenAPI schema, including no-store/failed-source cases and new instance after restart. | 0.4, 0.6, 0.8 | Medium |

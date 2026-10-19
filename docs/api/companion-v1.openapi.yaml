@@ -163,7 +163,11 @@ components:
       required: [name, state, last_success_at]
       properties:
         name: { type: string, minLength: 1 }
-        state: { enum: [healthy, failed, overdue, never_checked] }
+        state:
+          enum: [healthy, failed, overdue, never_checked]
+          description: >-
+            Failed includes malformed, dropped or truncated source items;
+            such a source forces complete=false even if cached tasks exist.
         last_success_at:
           type: [string, 'null']
           format: date-time
