@@ -1,0 +1,201 @@
+openapi: 3.1.0
+info:
+  title: Agent HUD companion gateway contract
+  version: 0.1.0-draft
+  description: >-
+    Review draft for Phase 0. Existing /tasks and glasses feedback remain
+    compatible. This contract grants no mobile decision permission.
+paths:
+  /v1/companion/snapshots/current:
+    get:
+      summary: Read one verifiable gateway snapshot
+      description: >-
+        A 200 response is not proof of completeness. The client must check
+        complete, source_health, instance/version continuity and its own
+        request ordering. A new gateway_instance_id invalidates comparisons
+        and open confirmations. Never infer an empty list from a failed read.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current observation, possibly incomplete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /tasks/{task_id}/feedback:
+    post:
+      summary: Existing glasses decision transport, with corrected idempotency
+      description: >-
+        Caller identity comes only from authenticated session or device token,
+        never from client_type in JSON. Under the Phase 0 volatile journal,
+        phone action sends are disabled. Existing Raven/Halo callers keep the
+        same URL, body and success shape. A remembered request_id with the
+        same canonical content returns its prior result before current
+        eligibility checks; different content returns 409/id_conflict.
+        For a new ID, eligibility and task/revision/action validation precede
+        one atomic result registration. Volatile history cannot guarantee
+        replay safety after restart or eviction; real-effect phone retries
+        require a reviewed durable journal and a separate enablement gate.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      security:
+        - sessionCookie: []
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Feedback'
+      responses:
+        '200':
+          description: Accepted or replayed prior acceptance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedbackResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: agent_hud_session
+      description: Required off loopback; a future phone credential needs review.
+    deviceToken:
+      type: apiKey
+      in: header
+      name: X-Agent-Hud-Device
+      description: Existing paired-glasses token; never issued to the phone.
+  responses:
+    Error:
+      description: Request rejected or snapshot unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, minLength: 1 }
+        code: { type: string }
+        status: { type: string }
+        revision: { type: integer, minimum: 0 }
+    Snapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - gateway_instance_id
+        - version
+        - observed_at
+        - complete
+        - source_health
+        - selected_device
+        - tasks
+        - idempotency_scope
+        - phone_decisions_enabled
+      properties:
+        gateway_instance_id:
+          type: string
+          format: uuid
+          description: New random UUID at each gateway process start.
+        version:
+          type: integer
+          minimum: 0
+          description: >-
+            Monotonic within instance on any visible task content, source
+            health or selected-device state change; never inferred from HTTP
+            status alone. A same-ID/revision content edit increments it.
+        observed_at: { type: string, format: date-time }
+        complete:
+          type: boolean
+          description: >-
+            True only after every enabled source has a successful fresh sweep
+            and the assembled task list is valid, untruncated and undropped.
+            False for missing, failed or overdue sources.
+        source_health:
+          type: array
+          items: { $ref: '#/components/schemas/SourceHealth' }
+        selected_device:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/SelectedDevice'
+          description: >-
+            Null until a selected paired device is bound by the gateway;
+            never inferred from generic /tasks reads or a caller-supplied
+            client_type. No pairing means partial setup, not offline glasses.
+        tasks:
+          type: array
+          items: { type: object }
+          description: >-
+            Never authoritative when complete is false. An absent/non-list
+            tasks field makes the response invalid, not empty.
+        idempotency_scope:
+          enum: [process_memory, durable]
+        phone_decisions_enabled:
+          type: boolean
+          description: >-
+            Always false in Phase 0. May become true only with authenticated
+            phone identity, server-bound device selection and durable replay
+            protection for real effects.
+    SourceHealth:
+      type: object
+      additionalProperties: false
+      required: [name, state, last_success_at]
+      properties:
+        name: { type: string, minLength: 1 }
+        state: { enum: [healthy, failed, overdue, never_checked] }
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+    SelectedDevice:
+      type: object
+      additionalProperties: false
+      required: [device_id, health, last_authenticated_at]
+      properties:
+        device_id: { type: string, minLength: 1 }
+        health: { enum: [online, uncertain, unavailable, unverified] }
+        last_authenticated_at:
+          type: [string, 'null']
+          format: date-time
+          description: Only authenticated requests by this device update it.
+    Feedback:
+      type: object
+      required: [request_id, revision, type]
+      properties:
+        request_id: { type: string, minLength: 1, maxLength: 128 }
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        type: { enum: [action, message] }
+        action_id: { type: string, minLength: 1 }
+        text: { type: string, minLength: 1 }
+      description: >-
+        Canonical replay content is task_id from URL plus every JSON field
+        except request_id, normalized by JSON key order (not string content).
+        Any changed field under a remembered ID is 409/id_conflict.
+    FeedbackResult:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+        action_id: { type: string }
+        characters: { type: integer }
+        replayed: { type: boolean }
