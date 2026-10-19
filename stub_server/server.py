@@ -40,6 +40,7 @@ from agent_hud.preferences import Preferences, parse_preferences, to_payload
 from .auth import (
     AuthStore,
     AuthUnavailable,
+    Device,
     authentication_options,
     library_available,
     registration_options,
@@ -51,6 +52,7 @@ from .drafts import DraftBook
 from .limits import RateLimiter
 from .net import LOOPBACK_HOST, is_loopback
 from .policy import Policy
+from .presence import PresenceMonitor
 from .refresher import Refresher
 from .store import TaskStore
 from .transcription import (
@@ -205,10 +207,13 @@ class _TasksHandler(BaseHTTPRequestHandler):
         own files are open; everything that reads your work or acts on
         your behalf needs a session.
         """
-        device = self.server.auth.device_for(self.headers.get(DEVICE_HEADER))
-        if device is not None:
-            # Generic phone/browser reads are never evidence of glasses presence.
-            self.server.device_last_seen = int(device.last_seen)
+        with self.server._snapshot_lock:
+            device = self.server.auth.device_for(
+                self.headers.get(DEVICE_HEADER), now=self.server.presence_clock()
+            )
+            if device is not None:
+                # Token traffic is activity, never physical-link evidence.
+                self.server.device_last_seen = int(device.last_seen)
 
         if not self.server.require_auth:
             return True
@@ -316,7 +321,9 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 return
 
             if what == "devices":
-                self._respond(200, {"devices": store.devices_payload()})
+                with self.server._snapshot_lock:
+                    devices = store.devices_payload()
+                self._respond(200, {"devices": devices})
                 return
 
             if what == "devices/pair":
@@ -324,10 +331,13 @@ class _TasksHandler(BaseHTTPRequestHandler):
                 # proof rather than just a live session.
                 if not self._may_administer():
                     return
-                payload = self._json_body(allow_empty=True) or {}
-                device, token = store.pair_device(
-                    str(payload.get("name", "")) or "Raven Prism"
-                )
+                payload = self._json_body(allow_empty=True)
+                if payload is None:
+                    return
+                with self.server._snapshot_lock:
+                    device, token = store.pair_device(
+                        str(payload.get("name", "")) or "Raven Prism"
+                    )
                 # Shown once. This gateway keeps only the hash, so it
                 # cannot produce the token again -- and a copy of its
                 # credential file is not a way in.
@@ -344,7 +354,8 @@ class _TasksHandler(BaseHTTPRequestHandler):
             if what.startswith("devices/revoke/"):
                 if not self._may_administer():
                     return
-                removed = store.revoke_device(what[len("devices/revoke/") :])
+                with self.server._snapshot_lock:
+                    removed = store.revoke_device(what[len("devices/revoke/") :])
                 self._respond(200 if removed else 404, {"revoked": removed})
                 return
 
@@ -858,6 +869,8 @@ class _TasksServer(ThreadingHTTPServer):
         auth_path: Path | None = None,
         store: TaskStore | None = None,
         refresher: Refresher | None = None,
+        link_checker: Callable[[Device], bool | None] | None = None,
+        presence_clock: Callable[[], float] = time.time,
         ssl_context: ssl.SSLContext | None = None,
         write_rate: float = DEFAULT_WRITE_RATE,
         write_burst: float = DEFAULT_WRITE_BURST,
@@ -871,6 +884,9 @@ class _TasksServer(ThreadingHTTPServer):
         # pushes at POST /events. None means the old shape: provider only.
         self.store = store
         self.refresher = refresher
+        self.link_checker = link_checker
+        self.presence_clock = presence_clock
+        self.presence = PresenceMonitor()
         self.gateway_instance_id = str(uuid.uuid4())
         self._snapshot_lock = threading.Lock()
         self._snapshot_version = 0
@@ -955,6 +971,27 @@ class _TasksServer(ThreadingHTTPServer):
 
         super().__init__(address, _TasksHandler)
 
+    def poll_selected_link(self) -> bool | None:
+        """Run a trusted link probe, never as a side effect of an HTTP read."""
+        with self._snapshot_lock:
+            device = self.auth.selected_device()
+            checker = self.link_checker
+        if device is None or checker is None:
+            return None
+        try:
+            result = checker(device)
+        except Exception:
+            # A crashed verifier is not a verified negative observation.
+            return None
+        if type(result) is not bool:
+            return None
+        with self._snapshot_lock:
+            current = self.auth.selected_device()
+            if current is None or current.device_id != device.device_id:
+                return None
+            self.presence.observe(device.device_id, result, at=self.presence_clock())
+        return result
+
     def companion_snapshot(self) -> dict:
         """Build one fail-closed, versioned observation for the owner."""
         def stamp(value: float | None) -> str | None:
@@ -1006,10 +1043,27 @@ class _TasksServer(ThreadingHTTPServer):
                 normalized = []
                 complete = False
                 health = [{**s, "state": "failed"} for s in health]
+            selected = self.auth.selected_device()
+            if selected is None:
+                selected_payload = None
+            else:
+                selected_payload = {
+                    "device_id": selected.device_id,
+                    "last_authenticated_at": stamp(selected.last_seen),
+                    **{
+                        key: stamp(value) if key in {
+                            "last_verified_link_at", "presence_valid_until",
+                            "absence_started_at"
+                        } else value
+                        for key, value in self.presence.state(
+                            selected.device_id, at=observed
+                        ).items()
+                    },
+                }
             fingerprint = (
                 store_version, self.policy._projection_version, evidence_epoch,
                 tuple((s["name"], s["state"], s["last_success_at"]) for s in health),
-                keys,
+                keys, tuple(selected_payload.items()) if selected_payload else None,
             )
             if self._snapshot_fingerprint != fingerprint:
                 self._snapshot_version += 1
@@ -1020,7 +1074,7 @@ class _TasksServer(ThreadingHTTPServer):
                 "observed_at": stamp(observed),
                 "complete": complete,
                 "source_health": health,
-                "selected_device": None,
+                "selected_device": selected_payload,
                 "tasks": normalized,
                 "idempotency_scope": "process_memory",
                 "decision_submission_enabled": False,
@@ -1081,6 +1135,8 @@ def create_server(
     auth_path: Path | None = None,
     store: TaskStore | None = None,
     refresher: Refresher | None = None,
+    link_checker: Callable[[Device], bool | None] | None = None,
+    presence_clock: Callable[[], float] = time.time,
     ssl_context: ssl.SSLContext | None = None,
     write_rate: float = DEFAULT_WRITE_RATE,
     write_burst: float = DEFAULT_WRITE_BURST,
@@ -1117,6 +1173,8 @@ def create_server(
         auth_path=auth_path,
         store=store,
         refresher=refresher,
+        link_checker=link_checker,
+        presence_clock=presence_clock,
         ssl_context=ssl_context,
         write_rate=write_rate,
         write_burst=write_burst,

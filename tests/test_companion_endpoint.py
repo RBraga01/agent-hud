@@ -104,7 +104,7 @@ def test_auth_disabled_and_device_token_cannot_read_companion():
         assert response.status_code == 401
         assert "tasks" not in response.json()
         owner = requests.get(base + PATH, cookies=cookie, timeout=5).json()
-        assert owner["selected_device"] is None
+        assert owner["selected_device"]["health"] == "unknown"
     finally:
         stop()
 

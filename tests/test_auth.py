@@ -100,6 +100,29 @@ def test_credentials_survive_a_restart(tmp_path):
     assert again.credentials["cred-1"].public_key == "public-key-1"
 
 
+def test_first_paired_device_is_server_selected_and_survives_restart(tmp_path):
+    path = tmp_path / "passkeys.json"
+    store = AuthStore(path=path)
+    first, _ = store.pair_device("first glasses", now=NOW)
+    second, _ = store.pair_device("second glasses", now=NOW + 1)
+
+    assert store.selected_device().device_id == first.device_id
+    assert store.selected_device().device_id != second.device_id
+    assert AuthStore(path=path).selected_device().device_id == first.device_id
+
+
+def test_revoking_selected_device_does_not_silently_select_another(tmp_path):
+    store = AuthStore(path=tmp_path / "passkeys.json")
+    first, _ = store.pair_device("first glasses", now=NOW)
+    store.pair_device("second glasses", now=NOW + 1)
+
+    assert store.revoke_device(first.device_id) is True
+    assert store.selected_device() is None
+    store.pair_device("third glasses", now=NOW + 2)
+    assert store.selected_device() is None
+    assert AuthStore(path=store.path).selected_device() is None
+
+
 def test_sessions_do_not_survive_a_restart(tmp_path):
     # Signing everybody out is the safe direction to fail in.
     path = tmp_path / "passkeys.json"

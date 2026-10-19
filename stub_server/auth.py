@@ -136,6 +136,7 @@ class AuthStore:
     path: Path | None = None
     credentials: dict[str, Credential] = field(default_factory=dict)
     devices: dict[str, Device] = field(default_factory=dict)
+    selected_device_id: str | None = None
     _sessions: dict[str, Session] = field(default_factory=dict)
     _challenges: dict[str, tuple[bytes, float]] = field(default_factory=dict)
 
@@ -182,6 +183,9 @@ class AuthStore:
             except (KeyError, TypeError, ValueError):
                 continue
             self.devices[device.device_id] = device
+        selected = raw.get("selected_device_id")
+        if isinstance(selected, str) and selected in self.devices:
+            self.selected_device_id = selected
 
     def save(self) -> None:
         if self.path is None:
@@ -207,6 +211,7 @@ class AuthStore:
                 }
                 for d in self.devices.values()
             ],
+            "selected_device_id": self.selected_device_id,
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -246,6 +251,7 @@ class AuthStore:
         they could use.
         """
         moment = time.time() if now is None else now
+        first_pairing = not self.devices
         if len(self.devices) >= MAX_DEVICES:
             oldest = min(self.devices.values(), key=lambda d: d.created_at)
             del self.devices[oldest.device_id]
@@ -258,8 +264,14 @@ class AuthStore:
             created_at=moment,
         )
         self.devices[device.device_id] = device
+        if first_pairing:
+            self.selected_device_id = device.device_id
         self.save()
         return device, token
+
+    def selected_device(self) -> Device | None:
+        """Only the gateway's persisted selection, never a caller-supplied ID."""
+        return self.devices.get(self.selected_device_id)
 
     def device_for(self, token: str | None, *, now: float | None = None):
         """The device that token belongs to, or None.
@@ -281,6 +293,8 @@ class AuthStore:
         if device_id not in self.devices:
             return False
         del self.devices[device_id]
+        if self.selected_device_id == device_id:
+            self.selected_device_id = None
         self.save()
         return True
 
