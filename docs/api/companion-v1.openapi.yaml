@@ -4,25 +4,69 @@ info:
   version: 0.1.0-draft
   description: >-
     Review draft for Phase 0. Existing /tasks and glasses feedback remain
-    compatible. This contract grants no mobile decision permission.
+    compatible. This contract grants no mobile decision permission. The new
+    snapshot route requires an authenticated owner session even on loopback;
+    an auth-disabled development gateway returns 403 for this route.
 paths:
   /v1/companion/snapshots/current:
     get:
       summary: Read one verifiable gateway snapshot
       description: >-
         A 200 response is not proof of completeness. The client must check
-        complete, source_health, instance/version continuity and its own
-        request ordering. A new gateway_instance_id invalidates comparisons
-        and open confirmations. Never infer an empty list from a failed read.
+        complete, source_health, gateway_instance_id/version together and its
+        own request ordering. All fields in one response MUST be copied from
+        one consistent observation under a shared synchronization boundary:
+        tasks, effective version, source health, selected-device state and
+        instance identity cannot come from different moments. A decision that
+        changes the visible task projection increments the effective version.
+        A new gateway_instance_id invalidates prior comparisons, cached empty
+        claims and open confirmations; a lower/late version within one instance
+        is discarded. Neither a restart nor HTTP 200 makes old data current.
+        Never infer an empty list from a failed or incomplete read.
       security:
         - sessionCookie: []
       responses:
         '200':
           description: Current observation, possibly incomplete
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Snapshot'
+              examples:
+                verified_empty:
+                  summary: Fresh, complete, genuinely empty observation
+                  value:
+                    gateway_instance_id: 32e315ab-b248-45eb-b663-44bb46558a9f
+                    version: 8
+                    observed_at: '2026-10-19T10:00:00Z'
+                    complete: true
+                    source_health:
+                      - name: simulated
+                        state: healthy
+                        last_success_at: '2026-10-19T10:00:00Z'
+                        fresh_until: '2026-10-19T10:00:10Z'
+                    selected_device: null
+                    tasks: []
+                    idempotency_scope: process_memory
+                    decision_submission_enabled: false
+                failed_source:
+                  summary: Old tasks retained, never an authoritative empty
+                  value:
+                    gateway_instance_id: 32e315ab-b248-45eb-b663-44bb46558a9f
+                    version: 9
+                    observed_at: '2026-10-19T10:00:20Z'
+                    complete: false
+                    source_health:
+                      - name: simulated
+                        state: failed
+                        last_success_at: '2026-10-19T10:00:00Z'
+                        fresh_until: '2026-10-19T10:00:10Z'
+                    selected_device: null
+                    tasks: []
+                    idempotency_scope: process_memory
+                    decision_submission_enabled: false
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
@@ -62,6 +106,8 @@ paths:
       responses:
         '200':
           description: Accepted or replayed prior acceptance
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FeedbackResult' }
@@ -87,10 +133,29 @@ components:
       description: Existing paired-glasses token; never issued to the phone.
   responses:
     Error:
-      description: Request rejected or snapshot unavailable
+      description: >-
+        400 malformed request; 401 missing/expired authentication; 403 caller
+        lacks permission or authenticated snapshot mode is disabled; 404 unknown
+        route/task; 409 stale revision or id_conflict (distinguished by code);
+        422 invalid offered action; 429 rate limit; 500 internal failure;
+        503 no consistent snapshot/source state available. Errors never carry
+        a task list and must never be interpreted as a verified empty result.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unauthenticated:
+              value: { error: sign in first, code: authentication_required }
+            snapshot_unavailable:
+              value: { error: consistent snapshot unavailable, code: snapshot_unavailable }
+            id_conflict:
+              value: { error: request_id content changed, code: id_conflict }
+  headers:
+    NoStore:
+      description: Sensitive task and device state must not be cached.
+      schema: { type: string, enum: [no-store] }
   schemas:
     Error:
       type: object
@@ -112,7 +177,7 @@ components:
         - selected_device
         - tasks
         - idempotency_scope
-        - phone_decisions_enabled
+        - decision_submission_enabled
       properties:
         gateway_instance_id:
           type: string
@@ -122,16 +187,20 @@ components:
           type: integer
           minimum: 0
           description: >-
-            Monotonic within instance on any visible task content, source
-            health or selected-device state change; never inferred from HTTP
-            status alone. A same-ID/revision content edit increments it.
+            Monotonic within the gateway instance on any visible task content,
+            policy resolution, source health or selected-device state change.
+            Read atomically with those fields. A same-ID/revision content edit
+            increments it; HTTP status alone is not a version signal.
         observed_at: { type: string, format: date-time }
         complete:
           type: boolean
           description: >-
-            True only after every enabled source has a successful fresh sweep
-            and the assembled task list is valid, untruncated and undropped.
-            False for missing, failed or overdue sources.
+            True only when at least one configured relevant source exists and
+            every configured relevant source was verified successfully within
+            its validity window at observed_at. Every task must validate with
+            no dropped, malformed or truncated data. False for no sources,
+            never-checked, failed or overdue sources, or an invalid list; an
+            empty tasks array is authoritative only when complete=true.
         source_health:
           type: array
           items: { $ref: '#/components/schemas/SourceHealth' }
@@ -151,16 +220,17 @@ components:
             tasks field makes the response invalid, not empty.
         idempotency_scope:
           enum: [process_memory, durable]
-        phone_decisions_enabled:
+        decision_submission_enabled:
           type: boolean
+          const: false
           description: >-
             Always false in Phase 0. May become true only with authenticated
             phone identity, server-bound device selection and durable replay
-            protection for real effects.
+            protection for real effects, after a reviewed contract revision.
     SourceHealth:
       type: object
       additionalProperties: false
-      required: [name, state, last_success_at]
+      required: [name, state, last_success_at, fresh_until]
       properties:
         name: { type: string, minLength: 1 }
         state:
@@ -171,17 +241,41 @@ components:
         last_success_at:
           type: [string, 'null']
           format: date-time
+        fresh_until:
+          type: [string, 'null']
+          format: date-time
+          description: Null until first successful verification.
     SelectedDevice:
       type: object
       additionalProperties: false
-      required: [device_id, health, last_authenticated_at]
+      required:
+        - device_id
+        - health
+        - evidence
+        - last_authenticated_at
+        - last_verified_link_at
       properties:
         device_id: { type: string, minLength: 1 }
-        health: { enum: [online, uncertain, unavailable, unverified] }
+        health:
+          enum: [healthy, unavailable, unknown]
+          description: >-
+            Healthy requires fresh verified physical-link/real-device evidence;
+            unavailable requires prior verified evidence plus the full absence
+            threshold; unknown is the safe default, including token-only reads.
+        evidence:
+          enum: [none, verified_link, verified_device_heartbeat]
+          description: >-
+            Merely presenting a paired-device token is not physical-presence
+            evidence and cannot change health or refresh physical presence.
+            Without independent evidence health=unknown.
         last_authenticated_at:
           type: [string, 'null']
           format: date-time
-          description: Only authenticated requests by this device update it.
+          description: Authenticated token activity, not proof of physical presence.
+        last_verified_link_at:
+          type: [string, 'null']
+          format: date-time
+          description: Last independently verified link or real-device heartbeat.
     Feedback:
       type: object
       required: [request_id, revision, type]
