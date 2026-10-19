@@ -112,17 +112,26 @@ def test_an_unknown_task_is_not_found(policy):
     assert policy.receive("nope", action())[0] == 404
 
 
+def test_a_new_decision_rejects_a_noncanonical_task_id(policy):
+    assert policy.receive("bad id", action())[0] == 400
+
+
 @pytest.mark.parametrize(
     "body, reason",
     [
         ("not a dict", "body is not an object"),
         ({}, "no request id"),
         ({"request_id": ""}, "empty request id"),
+        (action(request_id="bad id"), "invalid request id"),
+        (action(request_id="x" * 129), "long request id"),
         ({"request_id": "r", "revision": "4"}, "revision is a string"),
         ({"request_id": "r", "revision": True}, "revision is a bool"),
+        (action(revision=-1), "negative revision"),
+        (action(revision=2**53), "oversized revision"),
         ({"request_id": "r", "revision": 4}, "no type"),
         ({"request_id": "r", "revision": 4, "type": "shout"}, "unknown type"),
         ({"request_id": "r", "revision": 4, "type": "action"}, "no action id"),
+        (action(action_id="bad id"), "invalid action id"),
         (
             {"request_id": "r", "revision": 4, "type": "message", "text": "  "},
             "empty message",

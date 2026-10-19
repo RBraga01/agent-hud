@@ -22,6 +22,7 @@ something whose job is to let you run the app without accounts.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ from dataclasses import dataclass, field
 MAX_REMEMBERED = 512
 
 MAX_TEXT = 2000
+_IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 
 
 @dataclass
@@ -92,7 +94,7 @@ class Policy:
             return 400, {"error": "body must be an object"}
 
         request_id = body.get("request_id")
-        if not isinstance(request_id, str) or not request_id:
+        if not isinstance(request_id, str) or not _IDENTIFIER.fullmatch(request_id):
             return 400, {"error": "request_id is required"}
 
         try:
@@ -119,12 +121,17 @@ class Policy:
             return status, payload
 
     def _judge(self, task_id: str, body: dict) -> tuple[int, dict]:
+        if not _IDENTIFIER.fullmatch(task_id):
+            return 400, {"error": "task_id is invalid"}
         task = self._find(task_id)
         if task is None:
             return 404, {"error": "no such task"}
 
         revision = body.get("revision")
-        if isinstance(revision, bool) or not isinstance(revision, int):
+        if (
+            type(revision) is not int
+            or not 0 <= revision <= 2**53 - 1
+        ):
             return 400, {"error": "revision must be a number"}
 
         # 2. Still the same task they were looking at?
@@ -145,7 +152,7 @@ class Policy:
 
     def _judge_action(self, task: dict, body: dict) -> tuple[int, dict]:
         action_id = body.get("action_id")
-        if not isinstance(action_id, str) or not action_id:
+        if not isinstance(action_id, str) or not _IDENTIFIER.fullmatch(action_id):
             return 400, {"error": "action_id is required"}
 
         # 3. Would this gateway have offered it? Checked against our own

@@ -93,7 +93,11 @@ paths:
         - name: task_id
           in: path
           required: true
-          schema: { type: string, minLength: 1, maxLength: 128 }
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[A-Za-z0-9._:-]+$'
       security:
         - sessionCookie: []
         - deviceToken: []
@@ -115,7 +119,7 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
-        '409': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
         '500': { $ref: '#/components/responses/Error' }
@@ -132,11 +136,27 @@ components:
       name: X-Agent-Hud-Device
       description: Existing paired-glasses token; never issued to the phone.
   responses:
+    Conflict:
+      description: >-
+        Existing stale 409 uses status=stale and current revision; reused ID
+        with changed content uses code=id_conflict. Both keep their legacy
+        response shapes; clients must not treat either as an accepted retry.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ConflictError' }
+          examples:
+            stale:
+              value: { error: this task has changed, status: stale, revision: 5 }
+            id_conflict:
+              value: { error: request_id content changed, code: id_conflict }
     Error:
       description: >-
         400 malformed request; 401 missing/expired authentication; 403 caller
         lacks permission or authenticated snapshot mode is disabled; 404 unknown
-        route/task; 409 stale revision or id_conflict (distinguished by code);
+        route/task; 409 stale revision (status=stale) or ID conflict
+        (code=id_conflict);
         422 invalid offered action; 429 rate limit; 500 internal failure;
         503 no consistent snapshot/source state available. Errors never carry
         a task list and must never be interpreted as a verified empty result.
@@ -152,6 +172,8 @@ components:
               value: { error: consistent snapshot unavailable, code: snapshot_unavailable }
             id_conflict:
               value: { error: request_id content changed, code: id_conflict }
+            stale:
+              value: { error: this task has changed, status: stale, revision: 5 }
   headers:
     NoStore:
       description: Sensitive task and device state must not be cached.
@@ -164,7 +186,35 @@ components:
         error: { type: string, minLength: 1 }
         code: { type: string }
         status: { type: string }
-        revision: { type: integer, minimum: 0 }
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+      description: >-
+        Legacy errors may contain only error. A stale 409 keeps the existing
+        status=stale and current revision; an ID/content conflict uses
+        code=id_conflict. These discriminators never contradict each other.
+      not:
+        required: [status, code]
+        properties:
+          status: { const: stale }
+          code: { const: id_conflict }
+    ConflictError:
+      oneOf:
+        - $ref: '#/components/schemas/StaleConflict'
+        - $ref: '#/components/schemas/IdConflict'
+    StaleConflict:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [error, status, revision]
+          properties:
+            status: { const: stale }
+            revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    IdConflict:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [error, code]
+          properties:
+            code: { const: id_conflict }
     Snapshot:
       type: object
       additionalProperties: false
@@ -201,6 +251,12 @@ components:
             no dropped, malformed or truncated data. False for no sources,
             never-checked, failed or overdue sources, or an invalid list; an
             empty tasks array is authoritative only when complete=true.
+            A successful aggregate sweep alone is insufficient; without
+            individual configured-source evidence the server MUST return
+            complete=false.
+            Temporal checks require last_success_at <= observed_at <=
+            fresh_until for every healthy source; JSON Schema alone cannot
+            express this comparison.
         source_health:
           type: array
           items: { $ref: '#/components/schemas/SourceHealth' }
@@ -214,10 +270,17 @@ components:
             client_type. No pairing means partial setup, not offline glasses.
         tasks:
           type: array
-          items: { type: object }
+          items: { $ref: '#/components/schemas/CompanionTask' }
           description: >-
-            Never authoritative when complete is false. An absent/non-list
-            tasks field makes the response invalid, not empty.
+            Normalized companion projection, never authoritative when complete
+            is false. Legacy /tasks remains unchanged. Map legacy id to task_id;
+            preserve revision, source, title, summary, detail and needs_you;
+            map existing primary then secondary actions to actions[] with id
+            renamed action_id. A missing actions object maps to [], including
+            informational needs_you tasks with no executable choice. Malformed
+            or duplicate task/action IDs, missing required content or an
+            unconvertible action make the whole observation incomplete, never
+            a silently dropped item. An absent/non-list tasks field is invalid.
         idempotency_scope:
           enum: [process_memory, durable]
         decision_submission_enabled:
@@ -227,6 +290,57 @@ components:
             Always false in Phase 0. May become true only with authenticated
             phone identity, server-bound device selection and durable replay
             protection for real effects, after a reviewed contract revision.
+      allOf:
+        - if:
+            properties:
+              complete: { const: true }
+            required: [complete]
+          then:
+            properties:
+              source_health:
+                minItems: 1
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/SourceHealth'
+                    - properties:
+                        state: { const: healthy }
+                      required: [state]
+    CompanionTask:
+      type: object
+      additionalProperties: false
+      required:
+        [task_id, revision, source, title, summary, detail, needs_you, actions]
+      properties:
+        task_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        source: { type: string, minLength: 1 }
+        title: { type: string, minLength: 1 }
+        summary: { type: string }
+        detail: { type: string }
+        needs_you: { type: boolean }
+        actions:
+          type: array
+          maxItems: 2
+          items: { $ref: '#/components/schemas/CompanionAction' }
+          description: >-
+            Empty for informational tasks. Non-empty actions must be the
+            gateway-offered choices; distinct action_id values are checked by
+            server-side validation because uniqueItems cannot enforce that.
+    CompanionAction:
+      type: object
+      additionalProperties: false
+      required: [action_id, label]
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        label: { type: string, minLength: 1, maxLength: 16 }
     SourceHealth:
       type: object
       additionalProperties: false
@@ -245,6 +359,15 @@ components:
           type: [string, 'null']
           format: date-time
           description: Null until first successful verification.
+      allOf:
+        - if:
+            properties:
+              state: { const: healthy }
+            required: [state]
+          then:
+            properties:
+              last_success_at: { type: string, format: date-time }
+              fresh_until: { type: string, format: date-time }
     SelectedDevice:
       type: object
       additionalProperties: false
@@ -254,14 +377,24 @@ components:
         - evidence
         - last_authenticated_at
         - last_verified_link_at
+        - presence_valid_until
+        - absence_started_at
+        - failed_observations
       properties:
-        device_id: { type: string, minLength: 1 }
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
         health:
           enum: [healthy, unavailable, unknown]
           description: >-
             Healthy requires fresh verified physical-link/real-device evidence;
-            unavailable requires prior verified evidence plus the full absence
-            threshold; unknown is the safe default, including token-only reads.
+            unavailable requires prior verified evidence, at least two
+            independent failed observations and at least 60 seconds since the
+            first failed observation; unknown is the safe default, including
+            token-only reads. Time comparisons use observed_at and are tested
+            outside JSON Schema.
         evidence:
           enum: [none, verified_link, verified_device_heartbeat]
           description: >-
@@ -276,15 +409,75 @@ components:
           type: [string, 'null']
           format: date-time
           description: Last independently verified link or real-device heartbeat.
+        presence_valid_until:
+          type: [string, 'null']
+          format: date-time
+          description: Expiry of independent presence evidence; token traffic never extends it.
+        absence_started_at:
+          type: [string, 'null']
+          format: date-time
+          description: First failed independent presence observation in current absence run.
+        failed_observations:
+          type: integer
+          minimum: 0
+          description: Independent failed presence checks in current absence run.
+      allOf:
+        - if:
+            properties:
+              health: { enum: [healthy, unavailable] }
+            required: [health]
+          then:
+            properties:
+              evidence:
+                enum: [verified_link, verified_device_heartbeat]
+              last_verified_link_at: { type: string, format: date-time }
+        - if:
+            properties:
+              health: { const: healthy }
+            required: [health]
+          then:
+            properties:
+              presence_valid_until: { type: string, format: date-time }
+              absence_started_at: { type: 'null' }
+              failed_observations: { const: 0 }
+        - if:
+            properties:
+              health: { const: unavailable }
+            required: [health]
+          then:
+            properties:
+              absence_started_at: { type: string, format: date-time }
+              failed_observations: { type: integer, minimum: 2 }
     Feedback:
       type: object
       required: [request_id, revision, type]
       properties:
-        request_id: { type: string, minLength: 1, maxLength: 128 }
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
         revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
         type: { enum: [action, message] }
-        action_id: { type: string, minLength: 1 }
-        text: { type: string, minLength: 1 }
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        text: { type: string, minLength: 1, pattern: '\S' }
+      allOf:
+        - if:
+            properties:
+              type: { const: action }
+            required: [type]
+          then:
+            required: [action_id]
+        - if:
+            properties:
+              type: { const: message }
+            required: [type]
+          then:
+            required: [text]
       description: >-
         Canonical replay content is task_id from URL plus every JSON field
         except request_id, normalized by JSON key order (not string content).

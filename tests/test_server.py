@@ -61,6 +61,14 @@ def test_says_it_is_json(fixed_server):
     assert response.headers["Content-Type"].startswith("application/json")
 
 
+def test_json_success_and_error_are_not_cacheable(fixed_server):
+    success = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5)
+    error = requests.get(f"{fixed_server}/missing", timeout=5)
+
+    assert success.headers["Cache-Control"] == "no-store"
+    assert error.headers["Cache-Control"] == "no-store"
+
+
 def test_asks_again_on_every_request(fixed_server=None):
     # Nothing is cached: a second request must see a changed list.
     state = {"n": 0}
