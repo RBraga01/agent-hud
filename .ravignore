@@ -25,6 +25,7 @@ design/
 integrations/
 platforms/README.md
 platforms/halo/
+platforms/memomind/
 platforms/raven/README.md
 platforms/raven/platform.json
 .github/

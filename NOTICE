@@ -34,3 +34,16 @@ Brilliant SDK (a separate dependency)
 No Brilliant SDK source is included in this repository. The Lua adapter under
 platforms/halo/ is original Agent HUD code under MIT. This project is not
 affiliated with, endorsed by, or connected to Brilliant Labs.
+
+MemoMind plugin SDK (a separate dependency)
+--------------------------------------------
+- Scope: the public MemoMind plugin SDK used to build the paired C GMP and Web
+  MMPKG, installed under platforms/memomind/vendor/plugin-open-platform/ during
+  local or CI setup.
+- Upstream: https://github.com/memomind-open/plugin-open-platform
+- Licence: the upstream terms at the pinned commit recorded in
+  platforms/memomind/platform.json.
+
+No MemoMind SDK source or generated package is included in this repository.
+The adapter under platforms/memomind/ is original Agent HUD code under MIT.
+This project is not affiliated with, endorsed by, or connected to MemoMind.

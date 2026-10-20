@@ -6,6 +6,10 @@ Two things about this project are not negotiable, because both protect someone o
 
 **The Raven Framework never enters this repository.** It is proprietary. Its licence states that viewing the source grants no right to use, modify or redistribute it. It is listed in `.gitignore`. Do not add any part of it, do not paste its code into an issue, and do not include it in a pull request.
 
+**Vendor SDKs and packages stay out too.** Halo and MemoMind use pinned public
+SDK checkouts in their ignored `vendor/` directories. Do not commit either SDK,
+MemoMind's copied Web runtime, or generated `.gmp`/`.mmpkg` packages.
+
 **No credentials, ever.** No API keys, no `app_id`, no `app_key`, no machine names, no internal addresses. Settings come from the environment. `.env` is ignored and must stay that way.
 
 **Invent your test data.** Fixtures must never contain anything seen on a real machine — no real project names, folder layouts, prompts or session identifiers. The feeders read personal files, so it is easy to copy plausible-looking values straight out of a debugging session and into a test. Make them up, and make them obviously made up.
@@ -22,7 +26,10 @@ If your feature means teaching the app about a particular service, it belongs on
 
 ## What good work looks like
 
-**Logic goes in a module that does not need the framework.** `items.py`, `config.py`, `client.py` and `interaction.py` are plain Python and carry the tests. `app.py` places widgets and does nothing else. The framework cannot be installed in automated checks, so anything inside it cannot be verified there.
+**Logic goes in a module that does not need a vendor runtime.** Raven keeps it
+in plain Python, Halo in separable Lua modules, and MemoMind keeps codecs and
+round-trip policy outside its SDK entry points. Vendor-facing files bind
+rendering, input and transport; they do not redefine the shared contract.
 
 **Tests come first, and you watch them fail.** A test you have never seen fail is not a test. It is decoration.
 
@@ -37,6 +44,10 @@ pytest
 ruff check .
 ```
 
+Platform-specific checks are documented in each platform README. MemoMind
+changes must also pass its native C/JavaScript tests, official SDK build,
+MMPKG packaging and pair metadata check.
+
 Coverage must stay at or above 80 percent on the modules that do not need the framework. Screen tests skip without it, which is expected.
 
 ## Design changes
@@ -47,7 +58,9 @@ If you change anything visual, render it and look at it in all three lighting pr
 
 ## What not to contribute
 
-- Acting on items from the glasses. Reading only. Approving things through eye tracking is a much larger decision about safety than a prototype should make.
+- Sending from focus, navigation or action selection. Only a visually distinct
+  confirmation state may transmit a decision, with the current revision and a
+  stable decision ID.
 - Third-party Python packages for the glasses app. How extra packages get installed onto the device is undocumented, so the app uses only what the framework already bundles.
 - Anything that assumes a dark background exists. On this display it does not.
 
