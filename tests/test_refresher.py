@@ -2,7 +2,7 @@
 
 import time
 
-from stub_server.refresher import POLL_KEY, Refresher
+from stub_server.refresher import POLL_KEY, CollectionReport, Refresher
 from stub_server.store import TaskStore
 
 
@@ -75,3 +75,63 @@ def test_the_slice_key_is_stable():
     store = TaskStore()
     Refresher(store, lambda: [{"id": "x"}], interval=1).sweep_once()
     assert POLL_KEY in store._slices
+
+
+def test_sweep_health_distinguishes_never_checked_fresh_and_overdue():
+    moment = {"wall": 1000.0, "mono": 10.0}
+    r = Refresher(
+        TaskStore(),
+        list,
+        interval=5,
+        wall_clock=lambda: moment["wall"],
+        monotonic_clock=lambda: moment["mono"],
+    )
+
+    assert r.health().state == "never_checked"
+    assert r.sweep_once() is True
+    fresh = r.health()
+    assert fresh.state == "healthy"
+    assert fresh.last_success_at == 1000.0
+    assert fresh.fresh_until == 1010.0
+
+    moment["mono"] = 21.0
+    assert r.health().state == "overdue"
+
+
+def test_malformed_sweep_preserves_last_good_data_but_marks_failure():
+    store = TaskStore()
+    results = [[{"id": "last-good"}], [{"id": "new"}, "broken"]]
+    errors = []
+    r = Refresher(store, lambda: results.pop(0), on_error=errors.append)
+
+    assert r.sweep_once() is True
+    assert r.sweep_once() is False
+    assert store.snapshot() == [{"id": "last-good"}]
+    assert r.health().state == "failed"
+    assert len(errors) == 1
+
+
+def test_per_source_evidence_expires_and_does_not_ride_aggregate_success():
+    moment = {"wall": 1000.0, "mono": 10.0}
+    r = Refresher(
+        TaskStore(),
+        lambda: CollectionReport([], ("simulated",)),
+        sources=("simulated", "github"),
+        interval=5,
+        wall_clock=lambda: moment["wall"],
+        monotonic_clock=lambda: moment["mono"],
+    )
+    assert r.sweep_once()
+    assert [s["state"] for s in r.observation()[3]] == ["healthy", "failed"]
+    moment["wall"] += 11
+    moment["mono"] += 11
+    assert [s["state"] for s in r.observation()[3]] == ["overdue", "failed"]
+
+
+def test_non_list_sweep_is_failure_not_verified_empty():
+    store = TaskStore()
+    r = Refresher(store, lambda: None)
+
+    assert r.sweep_once() is False
+    assert r.health().state == "failed"
+    assert store.snapshot() == []

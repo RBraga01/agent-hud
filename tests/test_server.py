@@ -61,6 +61,14 @@ def test_says_it_is_json(fixed_server):
     assert response.headers["Content-Type"].startswith("application/json")
 
 
+def test_json_success_and_error_are_not_cacheable(fixed_server):
+    success = requests.get(f"{fixed_server}{TASKS_PATH}", timeout=5)
+    error = requests.get(f"{fixed_server}/missing", timeout=5)
+
+    assert success.headers["Cache-Control"] == "no-store"
+    assert error.headers["Cache-Control"] == "no-store"
+
+
 def test_asks_again_on_every_request(fixed_server=None):
     # Nothing is cached: a second request must see a changed list.
     state = {"n": 0}
@@ -230,6 +238,27 @@ def test_a_retry_with_the_same_id_does_not_answer_twice(gateway):
     assert retry.fields.get("replayed") is True
 
 
+def test_http_reused_id_with_changed_action_is_a_conflict(gateway):
+    base, _ = gateway
+    first = requests.post(
+        f"{base}/tasks/task-17/feedback",
+        json={"request_id": "reused-id", "revision": 4,
+              "type": "action", "action_id": "approve"},
+        timeout=5,
+    )
+    changed = requests.post(
+        f"{base}/tasks/task-17/feedback",
+        json={"request_id": "reused-id", "revision": 4,
+              "type": "action", "action_id": "reject"},
+        timeout=5,
+    )
+
+    assert first.status_code == 200
+    assert changed.status_code == 409
+    assert changed.json()["code"] == "id_conflict"
+    assert changed.json().get("replayed") is not True
+
+
 def test_a_fresh_id_after_answering_is_refused_as_stale(gateway):
     from agent_hud.feedback import SendOutcome
 
@@ -390,7 +419,7 @@ def test_the_settings_response_tells_the_control_what_it_shows(gateway):
     assert "device_last_seen" in body
 
 
-def test_asking_for_the_task_list_counts_as_the_device_being_around(gateway):
+def test_unpaired_task_reads_do_not_claim_glasses_presence(gateway):
     from agent_hud.client import fetch_tasks
 
     base, _ = gateway
@@ -398,7 +427,23 @@ def test_asking_for_the_task_list_counts_as_the_device_being_around(gateway):
 
     fetch_tasks(f"{base}/tasks")
 
-    assert _get(base, "/settings").json()["device_last_seen"] is not None
+    assert _get(base, "/settings").json()["device_last_seen"] is None
+
+
+def test_only_a_paired_device_request_marks_generic_device_presence(locked_gateway):
+    base, server = locked_gateway
+    paired = _pair(base).json()
+
+    assert server.device_last_seen is None
+    assert _get(base, "/tasks").status_code == 401
+    assert server.device_last_seen is None
+
+    assert requests.get(
+        f"{base}/tasks",
+        headers={"X-Agent-Hud-Device": paired["token"]},
+        timeout=5,
+    ).status_code == 200
+    assert server.device_last_seen is not None
 
 
 # --- it cannot be exposed by accident ---------------------------------
@@ -1078,6 +1123,19 @@ def test_with_the_lock_on_nothing_can_be_answered(locked_gateway):
         f"{base}/tasks/task-17/feedback",
         json={"revision": 4, "type": "action", "action_id": "approve",
               "request_id": "r"},
+        timeout=5,
+    )
+
+    assert response.status_code == 401
+
+
+def test_client_type_field_cannot_fake_a_paired_device(locked_gateway):
+    base, _ = locked_gateway
+
+    response = requests.post(
+        f"{base}/tasks/task-17/feedback",
+        json={"revision": 4, "type": "action", "action_id": "approve",
+              "request_id": "fake-device", "client_type": "glasses"},
         timeout=5,
     )
 
