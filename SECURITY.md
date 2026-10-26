@@ -57,5 +57,9 @@ If you find any part of it in this repository, that is a licence problem rather 
 | Unreleased | Yes |
 
 This is a prototype. Raven Prism is simulator-validated; Brilliant Labs Halo is
-emulator-validated. Neither status claims validation on physical hardware.
-Deployment to Prism hardware needs Raven-issued credentials and a device.
+emulator-validated; MemoMind One has public-SDK and Desktop Studio validation
+as an experimental paired C/JavaScript platform. None of these statuses claims
+validation on physical hardware. MemoMind's phone-side acceptance is currently
+synthetic and does not reach the live Agent HUD gateway; paired glass-side
+reconnect remains an open simulator gate. Deployment to Prism hardware needs
+Raven-issued credentials and a device.

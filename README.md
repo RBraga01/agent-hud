@@ -155,7 +155,9 @@ for the exact local commands and claim boundaries.
 - Physical Halo validation and the live Halo-to-gateway Bluetooth bridge remain
   open work.
 - MemoMind's paired glass-side reconnect, extended background testing and
-  physical-hardware validation remain open work.
+  physical-hardware validation remain open work, tracked in
+  [issue #10](https://github.com/RBraga01/agent-hud/issues/10). This does not
+  block publication as an experimental platform.
 
 The reproducible counts and boundary checks are recorded in
 [M3 integration results](docs/m3-results.md).

@@ -237,6 +237,10 @@ render rate.
 4. Repeat the evidence run on a physical MemoMind One. Live gateway transport
    remains a later integration, matching Halo's present claim boundary.
 
+Paired reconnect and physical-glasses validation are tracked in
+[issue #10](https://github.com/RBraga01/agent-hud/issues/10). The experimental
+port can be published without claiming either gate has passed.
+
 The exact M1.5 simulator trace and measurements are recorded in
 [`../../docs/memomind-m1-5-results.md`](../../docs/memomind-m1-5-results.md).
 The execution placement and restart policy are frozen in
