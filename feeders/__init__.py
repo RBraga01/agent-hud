@@ -13,6 +13,7 @@ Nothing in ``agent_hud`` should ever need to change.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from agent_hud.config import Settings
@@ -25,6 +26,7 @@ __all__ = [
     "claude_sessions",
     "codex",
     "collect",
+    "collect_with_evidence",
     "file_items",
     "github",
     "opencode",
@@ -95,3 +97,42 @@ def collect(settings: Settings, *, file_path: Path | str | None = None) -> list[
         elif name == "file" and file_path is not None:
             items.extend(file_items(file_path))
     return items
+
+
+def collect_with_evidence(
+    settings: Settings, *, file_path: Path | str | None = None
+):
+    """Collect legacy tasks while claiming only independently checked sources.
+
+    Most legacy feeders intentionally swallow I/O/parse errors as an empty
+    list. They remain usable by the glasses, but their result cannot certify
+    an empty companion snapshot until each gets a strict read path.
+    """
+    from stub_server.refresher import CollectionReport
+
+    tasks: list[dict] = []
+    verified: list[str] = []
+    for name in settings.feeders:
+        if name == "file":
+            if file_path is None:
+                continue
+            path = Path(file_path)
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                # Keep legacy sweep semantics (the previous slice survives).
+                raise FileFeederError("configured file could not be verified") from None
+            items = payload.get("tasks") if isinstance(payload, dict) else None
+            if not isinstance(items, list) or any(
+                not isinstance(t, dict) for t in items
+            ):
+                raise FileFeederError("configured file has invalid tasks")
+            tasks.extend(items)
+            verified.append(name)
+        else:
+            tasks.extend(
+                collect(replace(settings, feeders=(name,)), file_path=file_path)
+            )
+            if name == "simulated":
+                verified.append(name)
+    return CollectionReport(tasks, tuple(verified))

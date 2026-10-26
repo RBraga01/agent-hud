@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: Agent HUD companion gateway contract
+  version: 0.1.0-draft
+  description: >-
+    Review draft for Phase 0. Existing /tasks and glasses feedback remain
+    compatible. This contract grants no mobile decision permission. The new
+    snapshot route requires an authenticated owner session even on loopback;
+    an auth-disabled development gateway returns 403 for this route.
+paths:
+  /v1/companion/snapshots/current:
+    get:
+      summary: Read one verifiable gateway snapshot
+      description: >-
+        A 200 response is not proof of completeness. The client must check
+        complete, source_health, gateway_instance_id/version together and its
+        own request ordering. All fields in one response MUST be copied from
+        one consistent observation under a shared synchronization boundary:
+        tasks, effective version, source health, selected-device state and
+        instance identity cannot come from different moments. A decision that
+        changes the visible task projection increments the effective version.
+        A new gateway_instance_id invalidates prior comparisons, cached empty
+        claims and open confirmations; a lower/late version within one instance
+        is discarded. Neither a restart nor HTTP 200 makes old data current.
+        Never infer an empty list from a failed or incomplete read.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Current observation, possibly incomplete
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+              examples:
+                verified_empty:
+                  summary: Fresh, complete, genuinely empty observation
+                  value:
+                    gateway_instance_id: 32e315ab-b248-45eb-b663-44bb46558a9f
+                    version: 8
+                    observed_at: '2026-10-19T10:00:00Z'
+                    complete: true
+                    source_health:
+                      - name: simulated
+                        state: healthy
+                        last_success_at: '2026-10-19T10:00:00Z'
+                        fresh_until: '2026-10-19T10:00:10Z'
+                    selected_device: null
+                    tasks: []
+                    idempotency_scope: process_memory
+                    decision_submission_enabled: false
+                failed_source:
+                  summary: Old tasks retained, never an authoritative empty
+                  value:
+                    gateway_instance_id: 32e315ab-b248-45eb-b663-44bb46558a9f
+                    version: 9
+                    observed_at: '2026-10-19T10:00:20Z'
+                    complete: false
+                    source_health:
+                      - name: simulated
+                        state: failed
+                        last_success_at: '2026-10-19T10:00:00Z'
+                        fresh_until: '2026-10-19T10:00:10Z'
+                    selected_device: null
+                    tasks: []
+                    idempotency_scope: process_memory
+                    decision_submission_enabled: false
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /tasks/{task_id}/feedback:
+    post:
+      summary: Existing glasses decision transport, with corrected idempotency
+      description: >-
+        Caller identity comes only from authenticated session or device token,
+        never from client_type in JSON. Under the Phase 0 volatile journal,
+        phone action sends are disabled. Existing Raven/Halo callers keep the
+        same URL, body and success shape. A remembered request_id with the
+        same canonical content returns its prior result before current
+        eligibility checks; different content returns 409/id_conflict.
+        For a new ID, eligibility and task/revision/action validation precede
+        one atomic result registration. Volatile history cannot guarantee
+        replay safety after restart or eviction; real-effect phone retries
+        require a reviewed durable journal and a separate enablement gate.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[A-Za-z0-9._:-]+$'
+      security:
+        - sessionCookie: []
+        - deviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Feedback'
+      responses:
+        '200':
+          description: Accepted or replayed prior acceptance
+          headers:
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedbackResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: agent_hud_session
+      description: Required off loopback; a future phone credential needs review.
+    deviceToken:
+      type: apiKey
+      in: header
+      name: X-Agent-Hud-Device
+      description: Existing paired-glasses token; never issued to the phone.
+  responses:
+    Conflict:
+      description: >-
+        Existing stale 409 uses status=stale and current revision; reused ID
+        with changed content uses code=id_conflict. Both keep their legacy
+        response shapes; clients must not treat either as an accepted retry.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ConflictError' }
+          examples:
+            stale:
+              value: { error: this task has changed, status: stale, revision: 5 }
+            id_conflict:
+              value: { error: request_id content changed, code: id_conflict }
+    Error:
+      description: >-
+        400 malformed request; 401 missing/expired authentication; 403 caller
+        lacks permission or authenticated snapshot mode is disabled; 404 unknown
+        route/task; 409 stale revision (status=stale) or ID conflict
+        (code=id_conflict);
+        422 invalid offered action; 429 rate limit; 500 internal failure;
+        503 no consistent snapshot/source state available. Errors never carry
+        a task list and must never be interpreted as a verified empty result.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unauthenticated:
+              value: { error: sign in first, code: authentication_required }
+            snapshot_unavailable:
+              value: { error: consistent snapshot unavailable, code: snapshot_unavailable }
+            id_conflict:
+              value: { error: request_id content changed, code: id_conflict }
+            stale:
+              value: { error: this task has changed, status: stale, revision: 5 }
+  headers:
+    NoStore:
+      description: Sensitive task and device state must not be cached.
+      schema: { type: string, enum: [no-store] }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, minLength: 1 }
+        code: { type: string }
+        status: { type: string }
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+      description: >-
+        Legacy errors may contain only error. A stale 409 keeps the existing
+        status=stale and current revision; an ID/content conflict uses
+        code=id_conflict. These discriminators never contradict each other.
+      not:
+        required: [status, code]
+        properties:
+          status: { const: stale }
+          code: { const: id_conflict }
+    ConflictError:
+      oneOf:
+        - $ref: '#/components/schemas/StaleConflict'
+        - $ref: '#/components/schemas/IdConflict'
+    StaleConflict:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [error, status, revision]
+          properties:
+            status: { const: stale }
+            revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+    IdConflict:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [error, code]
+          properties:
+            code: { const: id_conflict }
+    Snapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - gateway_instance_id
+        - version
+        - observed_at
+        - complete
+        - source_health
+        - selected_device
+        - tasks
+        - idempotency_scope
+        - decision_submission_enabled
+      properties:
+        gateway_instance_id:
+          type: string
+          format: uuid
+          description: New random UUID at each gateway process start.
+        version:
+          type: integer
+          minimum: 0
+          description: >-
+            Monotonic within the gateway instance on any visible task content,
+            policy resolution, source health or selected-device state change.
+            Read atomically with those fields. A same-ID/revision content edit
+            increments it; HTTP status alone is not a version signal.
+        observed_at: { type: string, format: date-time }
+        complete:
+          type: boolean
+          description: >-
+            True only when at least one configured relevant source exists and
+            every configured relevant source was verified successfully within
+            its validity window at observed_at. Every task must validate with
+            no dropped, malformed or truncated data. False for no sources,
+            never-checked, failed or overdue sources, or an invalid list; an
+            empty tasks array is authoritative only when complete=true.
+            A successful aggregate sweep alone is insufficient; without
+            individual configured-source evidence the server MUST return
+            complete=false.
+            Temporal checks require last_success_at <= observed_at <=
+            fresh_until for every healthy source; JSON Schema alone cannot
+            express this comparison.
+        source_health:
+          type: array
+          items: { $ref: '#/components/schemas/SourceHealth' }
+        selected_device:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/SelectedDevice'
+          description: >-
+            Null until a selected paired device is bound by the gateway;
+            never inferred from generic /tasks reads or a caller-supplied
+            client_type. No pairing means partial setup, not offline glasses.
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/CompanionTask' }
+          description: >-
+            Normalized companion projection, never authoritative when complete
+            is false. Legacy /tasks remains unchanged. Map legacy id to task_id;
+            preserve revision, source, title, summary, detail and needs_you;
+            map existing primary then secondary actions to actions[] with id
+            renamed action_id. A missing actions object maps to [], including
+            informational needs_you tasks with no executable choice. Malformed
+            or duplicate task/action IDs, missing required content or an
+            unconvertible action make the whole observation incomplete, never
+            a silently dropped item. An absent/non-list tasks field is invalid.
+        idempotency_scope:
+          enum: [process_memory, durable]
+        decision_submission_enabled:
+          type: boolean
+          const: false
+          description: >-
+            Always false in Phase 0. May become true only with authenticated
+            phone identity, server-bound device selection and durable replay
+            protection for real effects, after a reviewed contract revision.
+      allOf:
+        - if:
+            properties:
+              complete: { const: true }
+            required: [complete]
+          then:
+            properties:
+              source_health:
+                minItems: 1
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/SourceHealth'
+                    - properties:
+                        state: { const: healthy }
+                      required: [state]
+    CompanionTask:
+      type: object
+      additionalProperties: false
+      required:
+        [task_id, revision, source, title, summary, detail, needs_you, actions]
+      properties:
+        task_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        source: { type: string, minLength: 1 }
+        title: { type: string, minLength: 1 }
+        summary: { type: string }
+        detail: { type: string }
+        needs_you: { type: boolean }
+        actions:
+          type: array
+          maxItems: 2
+          items: { $ref: '#/components/schemas/CompanionAction' }
+          description: >-
+            Empty for informational tasks. Non-empty actions must be the
+            gateway-offered choices; distinct action_id values are checked by
+            server-side validation because uniqueItems cannot enforce that.
+    CompanionAction:
+      type: object
+      additionalProperties: false
+      required: [action_id, label]
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        label: { type: string, minLength: 1, maxLength: 16 }
+    SourceHealth:
+      type: object
+      additionalProperties: false
+      required: [name, state, last_success_at, fresh_until]
+      properties:
+        name: { type: string, minLength: 1 }
+        state:
+          enum: [healthy, failed, overdue, never_checked]
+          description: >-
+            Failed includes malformed, dropped or truncated source items;
+            such a source forces complete=false even if cached tasks exist.
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        fresh_until:
+          type: [string, 'null']
+          format: date-time
+          description: Null until first successful verification.
+      allOf:
+        - if:
+            properties:
+              state: { const: healthy }
+            required: [state]
+          then:
+            properties:
+              last_success_at: { type: string, format: date-time }
+              fresh_until: { type: string, format: date-time }
+    SelectedDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - device_id
+        - health
+        - evidence
+        - last_authenticated_at
+        - last_verified_link_at
+        - presence_valid_until
+        - absence_started_at
+        - failed_observations
+      properties:
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        health:
+          enum: [healthy, unavailable, unknown]
+          description: >-
+            Healthy requires fresh verified physical-link/real-device evidence;
+            unavailable requires prior verified evidence, at least two
+            independent failed observations and at least 60 seconds since the
+            first failed observation; unknown is the safe default, including
+            token-only reads. Time comparisons use observed_at and are tested
+            outside JSON Schema.
+        evidence:
+          enum: [none, verified_link, verified_device_heartbeat]
+          description: >-
+            Merely presenting a paired-device token is not physical-presence
+            evidence and cannot change health or refresh physical presence.
+            Without independent evidence health=unknown.
+        last_authenticated_at:
+          type: [string, 'null']
+          format: date-time
+          description: Authenticated token activity, not proof of physical presence.
+        last_verified_link_at:
+          type: [string, 'null']
+          format: date-time
+          description: Last independently verified link or real-device heartbeat.
+        presence_valid_until:
+          type: [string, 'null']
+          format: date-time
+          description: Expiry of independent presence evidence; token traffic never extends it.
+        absence_started_at:
+          type: [string, 'null']
+          format: date-time
+          description: First failed independent presence observation in current absence run.
+        failed_observations:
+          type: integer
+          minimum: 0
+          description: Independent failed presence checks in current absence run.
+      allOf:
+        - if:
+            properties:
+              health: { enum: [healthy, unavailable] }
+            required: [health]
+          then:
+            properties:
+              evidence:
+                enum: [verified_link, verified_device_heartbeat]
+              last_verified_link_at: { type: string, format: date-time }
+        - if:
+            properties:
+              health: { const: healthy }
+            required: [health]
+          then:
+            properties:
+              presence_valid_until: { type: string, format: date-time }
+              absence_started_at: { type: 'null' }
+              failed_observations: { const: 0 }
+        - if:
+            properties:
+              health: { const: unavailable }
+            required: [health]
+          then:
+            properties:
+              absence_started_at: { type: string, format: date-time }
+              failed_observations: { type: integer, minimum: 2 }
+    Feedback:
+      type: object
+      required: [request_id, revision, type]
+      properties:
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        revision: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        type: { enum: [action, message] }
+        action_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        text: { type: string, minLength: 1, pattern: '\S' }
+      allOf:
+        - if:
+            properties:
+              type: { const: action }
+            required: [type]
+          then:
+            required: [action_id]
+        - if:
+            properties:
+              type: { const: message }
+            required: [type]
+          then:
+            required: [text]
+      description: >-
+        Canonical replay content is task_id from URL plus every JSON field
+        except request_id, normalized by JSON key order (not string content).
+        Any changed field under a remembered ID is 409/id_conflict.
+    FeedbackResult:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+        action_id: { type: string }
+        characters: { type: integer }
+        replayed: { type: boolean }

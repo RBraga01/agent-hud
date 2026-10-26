@@ -743,6 +743,8 @@ async function sendPending() {
     if (pending.clearsDraft) state.draft = null;
     // "Sent" means the gateway took it. Not that the work is done.
     say("Sent. The gateway took your answer.");
+  } else if (result.status === 409 && result.payload.code === "id_conflict") {
+    say("Not sent. This request ID belongs to a different decision.");
   } else if (result.status === 409) {
     say("Not sent. This task changed while you were deciding — open it again.");
   } else {
@@ -782,7 +784,10 @@ async function refresh() {
       getJSON("/settings"),
       getJSON("/drafts"),
     ]);
-    state.tasks = Array.isArray(tasks.tasks) ? tasks.tasks : [];
+    if (!tasks || !Array.isArray(tasks.tasks)) {
+      throw new Error("/tasks did not return a task list");
+    }
+    state.tasks = tasks.tasks;
     state.settings = settings;
     // The gateway owns drafts, so a reply dictated into the glasses can
     // be finished here, and one typed here shows up there.

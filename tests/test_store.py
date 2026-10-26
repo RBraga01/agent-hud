@@ -37,6 +37,33 @@ def test_a_changed_revision_counts_as_a_change():
     assert store.replace("poll", [task("a", revision=2)]) is True
 
 
+def test_same_revision_content_changes_advance_the_version():
+    store = TaskStore()
+    original = dict(task("a"), detail="first", actions={"primary": {"id": "go"}})
+    store.replace("poll", [original])
+    start = store.version
+
+    changed = dict(original, detail="different")
+    assert store.replace("poll", [changed]) is True
+    assert store.version == start + 1
+
+    changed_actions = dict(changed, actions={"primary": {"id": "stop"}})
+    assert store.replace("poll", [changed_actions]) is True
+    assert store.version == start + 2
+
+
+def test_mutating_nested_input_or_snapshot_cannot_change_store_content():
+    store = TaskStore()
+    supplied = dict(task("a"), actions={"primary": {"id": "go"}})
+    store.replace("poll", [supplied])
+    supplied["actions"]["primary"]["id"] = "changed outside"
+
+    observed = store.snapshot()
+    assert observed[0]["actions"]["primary"]["id"] == "go"
+    observed[0]["actions"]["primary"]["id"] = "changed snapshot"
+    assert store.snapshot()[0]["actions"]["primary"]["id"] == "go"
+
+
 def test_slices_are_flattened_in_first_written_order():
     store = TaskStore()
     store.replace("poll", [task("p1"), task("p2")])

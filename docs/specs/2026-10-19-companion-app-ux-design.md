@@ -1,0 +1,132 @@
+# Agent HUD companion app — UX design
+
+Date: 2026-10-19
+Status: functional and visual direction approved for implementation planning, with the safety amendments below; implementation remains paused pending technical-plan review
+
+## Product role
+
+The companion app is an independent, public-facing Agent HUD product. It has no dependency on the private T.I.O. project. Its primary job is to configure and verify connections, explain failures, and help recover them. It is not a second agent dashboard or an agent execution host. Agent work belongs to the agent tools and gateway, not to the glasses or phone.
+
+The one operational exception is continuity: when no glasses are paired or the selected glasses are unavailable, the phone may show and answer currently pending human decisions from the selected gateway. When the glasses are healthy, the Home screen does not show a decision queue.
+
+This design targets Android first with an iOS-ready shared layout. It does not claim an installed mobile app, physical-glasses validation, background notification delivery, or a live Halo bridge. Raven is simulator-validated; Halo is emulator-validated. Device cards must show their actual validation status until physical end-to-end tests justify a stronger claim.
+
+## Principles and boundaries
+
+1. Quiet is verified, not inferred: a complete, current empty gateway response is different from unreachable, malformed, truncated, stale, or out-of-order data. None of those failure cases can authorize a decision send.
+2. Selecting a decision action never sends it. Only a separate confirmation does.
+3. “Enviado ao gateway” means gateway acceptance, not completion of the agent's later work.
+4. The phone never chooses another gateway automatically. Every screen and notification identifies the selected environment.
+5. Device availability is observed separately from its cause. A timeout says “Óculos indisponíveis”; “Sem bateria” requires actual device telemetry.
+6. The app never invents an agent action or changes the action label supplied by the gateway.
+7. No task text is retained as an offline copy on the phone. A disconnected screen may retain the last in-memory snapshot during that session, marked with its observation time, but cannot send from it.
+
+## Visual direction and navigation
+
+- Light theme: Warm Clarity (B), warm ivory surface, dark ink text, restrained coral action accent and teal connection accent. Approved as a visual direction, not as a validated implementation.
+- Dark theme: Quiet Signal (A), midnight/navy surfaces, light text and restrained cyan connection accent. Approved as a visual direction, not as a validated implementation. Both themes use identical information hierarchy, text, icon shapes and interactions. Follow the OS theme by default; provide a manual override in settings.
+- Green/teal means a connection was just verified; amber means partial, stale or attention needed; red is reserved for a failed connection or send. Every meaning also has an icon and explicit text.
+- Minimum touch target: 48 by 48 logical pixels. Respect large text and reduced-motion settings. Long detail text scrolls within the page; fixed confirmation controls remain accessible.
+- Bottom navigation: Estado, Ligações, Ajuda. Ligações contains Gateway, Óculos and Fontes; Ajuda opens the recovery guides for the selected environment and device. The earlier “Dispositivos” mockup label is superseded by “Ligações” because sources and gateway need equal access.
+- No account avatar, chat composer, agent activity feed, or one-tap approval on the Home screen.
+
+### State screen layout
+
+On a narrow phone, use one vertical column: app title and selected environment; glasses status; gateway status; conditional pending-decision card; contextual diagnostic steps; bottom navigation. The pending-decision card exists only when glasses are absent/unavailable and the gateway has returned a complete, current list. On a tablet, keep the same reading order in a centered content column no wider than 600 logical pixels. Do not place status and decision panels side by side where one could be overlooked.
+
+Normal Home copy: “Ligações prontas” / “Ver ligações”. There is no decision count or queue. The user can deliberately open Ligações to inspect devices and sources.
+
+Partial-setup copy: “Configuração parcial” / “Óculos por adicionar” / “Adicionar óculos”. Gateway and source work may be complete without glasses; the app never calls the overall setup complete.
+
+Temporarily uncertain connection copy: “A confirmar ligação dos óculos” / “Última ligação há {tempo}” / “Atualizar estado”. A single missed observation is not evidence of sustained absence and does not expose the phone decision queue.
+
+Continuity copy: “Óculos indisponíveis” / “Última ligação há {tempo}” / “Gateway ligado” / “{n} decisão pendente” or “{n} decisões pendentes” / “Rever pedido” / “Diagnóstico”. Battery steps say “Verificar bateria” and show a measured percentage only if the device exposes one; otherwise they explain how to check manually.
+
+Gateway failure copy: “Gateway inacessível” / “Última sincronização: {hora}” / “Não é possível confirmar pedidos neste momento” / “Diagnosticar ligação”. A stale zero is never rendered as “0 pendentes”.
+
+Incomplete-response copy: “Não foi possível confirmar todos os pedidos” / “Atualizar estado”. Old or out-of-order copy: “Informação por confirmar” / “Atualizar estado”. Previously known requests may be shown as last-known information with a timestamp; sending is disabled until a complete current read succeeds. “Atualizar estado” only fetches data; it never resends a decision.
+
+## Initial setup flow
+
+The user-approved order is gateway, secure phone connection, glasses, sources, end-to-end test. The user may postpone glasses and finish gateway/source setup, leaving a visible partial state.
+
+### 1. Connect gateway
+
+Screen title: “Ligar gateway”. Instruction: “No computador, abra o gateway.” Primary action: “Ler QR”. Secondary action: “Introduzir endereço”. The QR is a proposed gateway setup surface containing only a gateway address and certificate fingerprint; it is not a login credential or an authorization to approve work. Manual entry leads to the same certificate check. The app must not suggest exposing a loopback-only gateway automatically. Network access requires gateway authentication and TLS, as in the current gateway policy.
+
+No QR or discovery result: “Não foi possível encontrar o gateway” with actions “Introduzir endereço” and “Verificar computador e rede”. A malformed QR is rejected and explained, not treated as an empty setup.
+
+### 2. Protect the phone connection
+
+Screen title: “Proteger ligação”. Display the selected gateway identity and the observed certificate fingerprint. Instruction: “Confirme que a impressão digital coincide com a mostrada no computador.” Primary action: “Criar chave neste telemóvel” (or “Entrar com chave” for a registered phone). A mismatch blocks progress with “A identidade do gateway não coincide” and “Voltar”; there is no unsafe override. A gateway's first network registration may additionally require its one-time setup token shown locally on the computer. The QR never bypasses this gate. Re-pairing or revocation requires recent authentication.
+
+### 3. Choose and set up glasses
+
+Screen title: “Escolher óculos”. Each device card shows model, actual validation status, requirements and its own guided setup path. Current catalogue: Raven Prism (“Em validação — simulador”) and Brilliant Labs Halo (“Em validação — emulador”). Do not present either as physically tested. Primary action after selection: “Continuar”. Secondary action: “Adicionar depois”; this saves the gateway/source progress and leaves glasses incomplete. “Ver requisitos” opens the device-specific preparation and troubleshooting guide.
+
+Raven guidance must account for its current one-time device token and gateway certificate trust, without pretending that the existing app can inject credentials into physical hardware. Halo guidance must not present emulator Bluetooth framing as a live gateway bridge. Any live pairing control stays unavailable until that device's end-to-end implementation and hardware validation exist. This is a release gate, not an optional warning that can be dismissed.
+
+### 4. Configure sources
+
+Screen title: “Ligar fontes”. Rows are “Codex”, “Claude Code” and “GitHub”, each with “Configurar” and a truthful capability/status label: “Ligado”, “Por configurar”, or “Falha na verificação”. The phone guides gateway-side setup and verifies the resulting source status; it does not read local agent files on the phone or silently install hooks on a computer. A source may be skipped with “Configurar depois”. GitHub's current feeder is a read-only review-request source; this screen must not imply that GitHub approvals can be sent through it.
+
+### 5. Test and finish
+
+Screen title: “Verificar configuração”. Primary action: “Fazer teste”. The test uses invented sample data and checks the gateway, phone authentication, selected device path if one exists, and configured source health independently. Results use “Pronto”, “Precisa de atenção”, or “Por configurar” per step; there is no blanket success if one step failed. An unpaired device remains “Óculos por adicionar”. Completion action: “Abrir Estado”. The app does not send a real decision during the test.
+
+## Continuity and decision review
+
+Entry condition: the selected glasses are not paired or have remained unavailable long enough to avoid a transient-disconnect alert, while the selected gateway is reachable. The phone displays the continuity layout. If the gateway is also unreachable, it shows recovery only: no current count, no decision submission, no claim that agents are still running.
+
+The selected gateway's authenticated, per-device health is authoritative for the selected glasses. Generic gateway traffic, including phone polling, must not update or stand in for glasses presence. A missed check first enters temporarily uncertain connection; sustained absence requires at least 60 seconds and two independent failed health observations. Without paired glasses, the screen remains “Configuração parcial” and may offer foreground-only continuity after a verified gateway read; it does not imply the glasses failed. A missing/expired phone credential blocks decisions even when the gateway network endpoint responds.
+
+Tap “Rever pedido” -> fetch its current task and revision from a complete, current gateway response -> show source, title, full detail, last update and exactly the gateway-offered actions -> select an action -> separate confirmation showing the action and task title -> “Confirmar envio” revalidates the same selected gateway, task revision and offered action against a new complete, in-order read, then sends only if they still match. “Cancelar” exits without sending. During revalidation and send, show “A verificar e enviar…” and disable repeated submission. If the revision changed, show “O pedido mudou. Leia-o novamente.” and return to detail. On acceptance, show “Enviado ao gateway”; on rejected action, show “O gateway recusou esta ação”; on unknown delivery, show “Não sabemos se o pedido chegou ao gateway”. Repeated taps while sending cannot create a second decision.
+
+Unknown delivery offers “Tentar novamente”, but this action **only opens review; it never resends**. The review makes a new complete, current fetch and shows the full request, the previously selected action, and the fact that delivery was not confirmed. If the task is absent, changed, incomplete, stale, out of order, or the chosen action is no longer offered, the old attempt cannot be resent. If the same task, revision, content, and offered action are verified, the user deliberately selects the action again and passes through a separate confirmation headed “Confirmar nova tentativa”. Only that final confirmation may resend, using the original `decision_id`. Copy beside the action says “Antes de reenviar, reveja o pedido e confirme a ação.” This mirrors the glasses' review-before-retry protection; returning to the app, tapping a notification, or refreshing status never resends anything.
+
+If the selected glasses reconnect while phone detail, selection, or confirmation is open, invalidate the phone selection and close its confirmation without sending. Show “Óculos novamente ligados. Reveja o pedido nos óculos.” Refresh the selected gateway and return to healthy Home only after a complete current observation. The final pre-send check must verify phone continuity eligibility as well as task/revision/action. The gateway must make the final, atomic eligibility and revision decision so a reconnection or a glasses response racing the phone cannot authorize a stale or duplicate action. If a send is already in flight when reconnection is observed, do not cancel, replay or silently move it to the glasses: wait for the gateway outcome, show accepted/refused/unknown truthfully, then refresh health. An unknown outcome remains subject to the same deliberate review gate; healthy glasses cannot be bypassed by a phone retry.
+
+For every read, the app records the selected gateway identity, a local request sequence, the gateway snapshot version, the highest observed version for that gateway, the task revision, completeness, and observation time. A response to an earlier request that arrives after a newer one is discarded. A lower snapshot version or lower task revision is marked “Informação por confirmar”, not accepted as current. Missing/invalid version, malformed data, truncation, failed source, or a snapshot observed before the latest foreground entry/resume cannot produce a verified empty state or enable “Confirmar envio”. A fresh, complete read is required both on opening a decision and immediately after the final confirmation; the gateway's revision check handles any race between that read and the send. Switching gateways clears this comparison state and requires an explicit new selection and fresh read. The gateway's own revision and decision-ID checks remain the final safeguard; the phone's UI gates do not replace them.
+
+The phone never says “Aprovado”, “Concluído”, or “Implementado” solely because a send was accepted. A later verified task update can report later work. Device reconnection refreshes current gateway data before returning to normal Home; it does not replay or silently transfer any decision.
+
+### Home state priority and transitions
+
+The app evaluates configuration, authenticated gateway reachability, snapshot integrity, and selected-glasses health separately. It renders one primary state in this priority order, so lower-priority evidence cannot overwrite a higher-priority warning:
+
+1. **Setup blocked:** no selected/trusted gateway or valid phone authentication. Continue setup or re-authenticate; no decision read is authoritative.
+2. **Gateway unavailable:** selected gateway cannot provide an authenticated current response. Show timestamped last observation and diagnostics; no verified count, queue, alert or send, regardless of glasses status.
+3. **Information unverified:** gateway responds but the task snapshot is incomplete, malformed, stale, out of order or lacks required version/completeness evidence. Show the corresponding warning; no verified empty/count or send. This overlay applies even during partial setup or continuity.
+4. **Partial setup:** authenticated gateway is current but no glasses have been paired. Show remaining steps. A verified pending request may be reviewed in foreground only; no background alerts. Skipped sources remain visible in the setup checklist but do not mask a paired device's current connection state.
+5. **Connection temporarily uncertain:** paired selected glasses have a recent missed observation but the sustained-absence threshold is not met. Show diagnostics; retain no phone decision action from an earlier continuity state.
+6. **Continuity:** selected glasses are verified unavailable for the sustained interval, and the gateway snapshot is complete/current. Show verified pending decisions, if any, and allow phone review; the gateway still gates the final send.
+7. **Healthy:** selected glasses and gateway are currently verified. Home shows connection health only, never a decision count or queue.
+
+On any transition toward a higher-priority warning, discard an open phone selection/confirmation. Recovery from gateway loss or unverified information requires fresh authentication when applicable, a complete in-order snapshot, and a fresh selected-device health observation before recomputing the state; a cached zero never becomes healthy or empty. Recovery from temporary uncertainty to healthy removes any phone decision card. Recovery to continuity requires the full absence threshold again. Switching environments invalidates all comparison state, open decisions and notification eligibility; there is no automatic failover.
+
+## Background alert policy
+
+Default: one generic notification per pending decision revision only when a previously paired, selected pair of glasses has remained unavailable and the gateway has confirmed a current pending decision. A first-run partial setup with no paired glasses has foreground continuity but no background decision alerts. Proposed minimum absence window: 60 seconds, with at least two independent failed health observations. Text: “Agent HUD · {ambiente selecionado}: uma decisão precisa de ti” (pluralized when appropriate). The environment label is the user's chosen, non-sensitive display name; if it is missing or too long, use the selected gateway's short, non-secret identifier, never omit the environment. Tapping opens the current request detail after revalidation; it never opens confirmation or sends. No alert for a single transient disconnect, a stale list, an unreachable gateway, or a decision already answered on another device. Notification content contains no task title or private text.
+
+If the Android background mechanism cannot reliably confirm both conditions, this alert is not presented as a guaranteed feature and its preference is not shown. Foreground recovery still works. iOS delivery is a later platform validation, not inferred from Android behavior.
+
+## Failure, privacy and accessibility rules
+
+- Missing gateway, certificate mismatch, expired sign-in, missing phone network permission, absent device, unsupported hardware, failed source, partial task list, stale revision and unknown send outcome each get a distinct explanation and next action.
+- The app can show the last observed status with its timestamp, but cached text is never treated as current authority. A real empty current list alone can say “Sem decisões pendentes agora”.
+- Setup progress may retain non-sensitive connection metadata. Secrets stay in platform-protected credential storage or the gateway; no credentials, raw agent state or task text are written to analytics or log files.
+- All demo and test content is invented. No real user task appears in a screenshot, fixture or sample notification.
+- All important status and action labels must remain legible at 200% text scale, with screen-reader labels and a non-colour indicator. Reduced motion removes decorative transitions without removing status changes.
+- A user can switch gateway only through an explicit selection that names both environments; there is no automatic failover.
+
+## Scope and validation gates
+
+This spec fixes the experience, not current implementation status. A future implementation plan may split gateway setup surfaces, mobile UI, device adapters, notification delivery and hardware validation into separate increments. No production device card may say “Ligado” without a real, current handshake. No public claim of Raven or Halo physical compatibility precedes repeatable hardware testing. No background-alert claim precedes a working OS-permitted delivery path.
+
+Before implementation, the state map in design/ai-states/agent-hud-companion.md is normative for gateway-derived decision information. Since the companion does not stream model tokens or generate AI responses, it must not fabricate a streaming animation or answer-confidence claim.
+
+Visual validation gate: the concept mockups are not acceptance evidence. Before release, capture and inspect the actual continuity, decision detail, confirmation, unknown-delivery, incomplete/stale/out-of-order, and gateway-error screens in both themes at normal and 200% text scale on a narrow Android phone. Verify measured contrast for text and controls, screen-reader reading/focus order, touch targets, long translated labels and long task detail, reduced motion, and that no status depends on colour alone. Record any failures and fix them before claiming accessibility or shipping these flows.
+
+Safety acceptance scenarios: “Tentar novamente” never sends directly; it opens full current detail, requires choosing the action again, and requires a separate confirmation while preserving the `decision_id`. Reconnection during an open phone confirmation invalidates it without sending; reconnection during an in-flight send awaits the real outcome. A late older response never replaces a newer state. Empty/malformed/truncated/lower-version responses never render “Sem decisões pendentes agora” or enable sending. Suspending and resuming the app invalidates confirmation until a fresh complete read. A changed task or action blocks the old decision, even when the user has already reached confirmation.
+
+Acceptance for this design: a new user can connect or diagnose a gateway, defer glasses, understand exactly what remains incomplete, add available sources, run an honest test, and, only in continuity mode with a verified gateway, review and deliberately answer a pending decision. An unknown delivery requires fresh review and separate confirmation before a safe retry. An incomplete, old or out-of-order response cannot authorize a send or look empty. Normal mode remains a connection tool, not an agent dashboard.
