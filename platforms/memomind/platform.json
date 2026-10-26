@@ -1,0 +1,7 @@
+{
+  "id": "memomind-one",
+  "implementation": "in-repository",
+  "validation": "simulator-validated",
+  "source": ["glasses/", "phone/"],
+  "sdk_commit": "f74ee53eb70b008e665adfd81ff8a78a344a4ecb"
+}

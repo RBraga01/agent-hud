@@ -6,12 +6,23 @@ then lets you read the request and answer it deliberately.
 
 The project now contains implementations for more than one smart-glasses
 platform. Each platform has its own layout and controls, but they follow the
-same safety rules and speak the same decision format.
+same safety rules and preserve the common decision vocabulary. Validation and
+contract coverage are stated separately for each platform.
 
 | Raven Prism | Brilliant Labs Halo |
 |---|---|
 | ![Raven Prism task list in low light](docs/screens_night.png) | ![Halo action menu in the emulator](platforms/halo/docs/images/menu.png) |
 | [Full Raven guide](platforms/raven/README.md) | [Full Halo guide](platforms/halo/README.md) |
+
+The third ecosystem is [MemoMind One](platforms/memomind/README.md), integrated
+as an experimental C + JavaScript pair. It passes the public SDK build/package
+contracts and the M1.5 round-trip in MemoMind Desktop Studio. Complete Agent HUD
+parity is now at its final simulator-evidence gate: its SDK-independent C core
+passes the shared conformance suite, the M2B pair completed a Desktop Studio
+round trip, and the current canonical-v2 candidate adds full task fields, safe
+  retry, restart/input guards and state-specific LVGL layouts. The corrected
+renderer has Desktop Studio captures and user visual approval; physical-hardware
+validation is separate.
 
 ## The promise
 
@@ -39,7 +50,7 @@ when the first reply was lost.
 |---|---|---|
 | [Raven Prism](platforms/raven/README.md) | Complete Python app, gaze-focused controls, audio reply flow and deploy entry point | Raven simulator and automated tests |
 | [Brilliant Labs Halo](platforms/halo/README.md) | Complete Lua app, button/tap controls and Bluetooth message binding | Public Halo emulator and automated tests |
-| MemoMind One | Research notes only | Not validated |
+| [MemoMind One](platforms/memomind/README.md) | Paired C glasses app and JavaScript phone plugin; canonical v2 transport, shared core, safe retry and LVGL state renderer | Desktop Studio functional and visual evidence plus public-SDK/native checks; paired glass-side reconnect and hardware pending |
 
 `Simulator validated` and `emulator validated` do not mean tested on physical
 glasses. Hardware support will be claimed only after repeatable device testing.
@@ -49,9 +60,9 @@ glasses. Hardware support will be claimed only after repeatable device testing.
 ```text
 Agent tools ──> local gateway ──> decision contract
                                       │
-                    ┌─────────────────┼─────────────────┐
-                    │                 │                 │
-                Raven Prism      Brilliant Halo    phone/browser
+              ┌───────────────────────┼───────────────────────┐
+              │                       │                       │
+          Raven Prism            Brilliant Halo      MemoMind C + JS
 ```
 
 The common files under [`core/`](core/) define tasks, decisions, results and
@@ -96,6 +107,7 @@ framing helper, not a finished Bluetooth bridge to the live gateway.
 | [`core/`](core/) | Platform-neutral task, decision and result contract |
 | [`platforms/raven/`](platforms/raven/) | Raven runtime, assets and platform guide |
 | [`platforms/halo/`](platforms/halo/) | Halo Lua app, emulator tests, evidence and platform guide |
+| [`platforms/memomind/`](platforms/memomind/) | MemoMind paired C/JS runtime, M1.5/M2A tests and platform guide |
 | [`stub_server/`](stub_server/) | Local gateway, authentication and policy |
 | [`feeders/`](feeders/) | Readers for agent tools and task sources |
 | [`control/`](control/) | Phone and browser interface served by the gateway |
@@ -123,17 +135,29 @@ python -m uv sync --frozen
 python -m uv run pytest -q
 ```
 
-Continuous integration runs both paths independently. Vendor SDK source and the
-proprietary Raven Framework are never committed or placed in another platform's
-package.
+Continuous integration runs every platform path independently. Vendor SDK
+source and the proprietary Raven Framework are never committed or placed in
+another platform's package.
+
+MemoMind uses a third independent check. It clones the public SDK at the pinned
+commit, runs the C/JavaScript M1.5 tests, builds the GMP, packages the MMPKG and
+checks their paired metadata. See the [MemoMind guide](platforms/memomind/README.md)
+for the exact local commands and claim boundaries.
 
 ## Project status
 
 - The common decision contract and conformance cases are in place.
 - Raven has a separated platform runtime with pixel-stable simulator evidence.
 - Halo is integrated as a clean MIT-licensed export with emulator evidence.
+- MemoMind is integrated as an experimental paired platform with public-SDK
+  build evidence, a simulator-validated M2B flow and a canonical-v2 parity
+  candidate whose protocol, state, input, retry and restart tests pass.
 - Physical Halo validation and the live Halo-to-gateway Bluetooth bridge remain
   open work.
+- MemoMind's paired glass-side reconnect, extended background testing and
+  physical-hardware validation remain open work, tracked in
+  [issue #10](https://github.com/RBraga01/agent-hud/issues/10). This does not
+  block publication as an experimental platform.
 
 The reproducible counts and boundary checks are recorded in
 [M3 integration results](docs/m3-results.md).
@@ -144,8 +168,8 @@ issues.
 
 ## Independence and licence
 
-Agent HUD is an independent project. It is not affiliated with Raven Resonance
-or Brilliant Labs. Their frameworks, SDKs, trademarks and hardware remain their
-own.
+Agent HUD is an independent project. It is not affiliated with Raven Resonance,
+Brilliant Labs or MemoMind. Their frameworks, SDKs, trademarks and hardware
+remain their own.
 
 Agent HUD is available under the [MIT licence](LICENSE).

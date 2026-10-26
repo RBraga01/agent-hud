@@ -1,0 +1,11 @@
+{
+  "id": "io.agenthud.memomind",
+  "name": "Agent HUD",
+  "version": 1,
+  "abi_version": 256,
+  "provides": {
+    "protocols": [
+      { "id": "agent-hud.decision", "version": "1.0" }
+    ]
+  }
+}

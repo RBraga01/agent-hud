@@ -29,6 +29,19 @@ raven-framework/
 platforms/halo/vendor/brilliant_sdk/
 platforms/halo/artifacts/
 
+# MemoMind Open Platform — public external dependency, pinned and fetched for
+# builds/tests rather than redistributed from Agent HUD.
+platforms/memomind/vendor/plugin-open-platform/
+platforms/memomind/artifacts/
+platforms/memomind/glasses/build-host/
+platforms/memomind/glasses/.build/
+platforms/memomind/glasses/.build-*/
+platforms/memomind/phone/dist/
+platforms/memomind/phone/vendor/
+*.gmp
+*.mmpkg
+*.review-source.enc
+
 # Internal planning notes, kept outside the repository
 docs/specs/
 docs/plans/
