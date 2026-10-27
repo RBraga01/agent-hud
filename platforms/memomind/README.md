@@ -22,6 +22,28 @@ request, single-tap open, three deliberate double taps, correlated phone ACK,
 then `Sent`. M2F visual review is complete; paired glass-side reconnect
 evidence is still required before full simulator parity is marked complete.
 
+## How it looks
+
+These are captures of the actual glasses framebuffer in MemoMind Desktop Studio
+using invented test requests. The phone view is the paired test plugin. They
+show simulator rendering and do not establish behavior on physical glasses.
+
+| Needs attention | Read the request | Choose |
+|---|---|---|
+| ![Small pending-request indicator on a quiet display](docs/images/attention.png) | ![Request summary with a separate open control](docs/images/request.png) | ![Action menu with one focused button](docs/images/menu.png) |
+
+| Confirm | Request changed | Sent (synthetic phone ACK) |
+|---|---|---|
+| ![Separate confirmation screen](docs/images/confirmation.png) | ![Stale request warning with no decision sent](docs/images/stale.png) | ![Sent screen after a correlated synthetic phone acknowledgement](docs/images/sent.png) |
+
+The paired phone plugin presents test scenarios and records the correlated
+result:
+
+![MemoMind phone test plugin](docs/images/phone.png)
+
+The `Sent` capture follows a synthetic phone-side acceptance in Desktop Studio.
+The MemoMind pair is not yet connected to the live Agent HUD gateway.
+
 ## Architecture
 
 ```text
