@@ -9,20 +9,17 @@ platform. Each platform has its own layout and controls, but they follow the
 same safety rules and preserve the common decision vocabulary. Validation and
 contract coverage are stated separately for each platform.
 
-| Raven Prism | Brilliant Labs Halo |
-|---|---|
-| ![Raven Prism task list in low light](docs/screens_night.png) | ![Halo action menu in the emulator](platforms/halo/docs/images/menu.png) |
-| [Full Raven guide](platforms/raven/README.md) | [Full Halo guide](platforms/halo/README.md) |
+| Raven Prism | Brilliant Labs Halo | MemoMind One (experimental) |
+|---|---|---|
+| ![Raven Prism task list in low light](docs/screens_night.png) | ![Halo action menu in the emulator](platforms/halo/docs/images/menu.png) | ![MemoMind One action menu in Desktop Studio](platforms/memomind/docs/images/menu.png) |
+| [Full Raven guide](platforms/raven/README.md) | [Full Halo guide](platforms/halo/README.md) | [Full MemoMind guide](platforms/memomind/README.md) |
 
-The third ecosystem is [MemoMind One](platforms/memomind/README.md), integrated
-as an experimental C + JavaScript pair. It passes the public SDK build/package
-contracts and the M1.5 round-trip in MemoMind Desktop Studio. Complete Agent HUD
-parity is now at its final simulator-evidence gate: its SDK-independent C core
-passes the shared conformance suite, the M2B pair completed a Desktop Studio
-round trip, and the current canonical-v2 candidate adds full task fields, safe
-  retry, restart/input guards and state-specific LVGL layouts. The corrected
-renderer has Desktop Studio captures and user visual approval; physical-hardware
-validation is separate.
+MemoMind's paired C and JavaScript app has passed the public SDK build checks
+and a decision round trip in Desktop Studio. Its corrected glasses UI has been
+visually reviewed. The phone acknowledgement in that flow is synthetic; live
+gateway integration, paired reconnect and physical-device validation remain
+open. See the [MemoMind evidence](docs/memomind-m1-5-results.md) and
+[remaining work](https://github.com/RBraga01/agent-hud/issues/10).
 
 ## The promise
 
@@ -50,7 +47,7 @@ when the first reply was lost.
 |---|---|---|
 | [Raven Prism](platforms/raven/README.md) | Complete Python app, gaze-focused controls, audio reply flow and deploy entry point | Raven simulator and automated tests |
 | [Brilliant Labs Halo](platforms/halo/README.md) | Complete Lua app, button/tap controls and Bluetooth message binding | Public Halo emulator and automated tests |
-| [MemoMind One](platforms/memomind/README.md) | Paired C glasses app and JavaScript phone plugin; canonical v2 transport, shared core, safe retry and LVGL state renderer | Desktop Studio functional and visual evidence plus public-SDK/native checks; paired glass-side reconnect and hardware pending |
+| [MemoMind One](platforms/memomind/README.md) | Paired C glasses app and JavaScript phone plugin; canonical v2 transport, SDK-independent state machine, safe retry and LVGL state renderer | Desktop Studio functional and visual evidence plus public-SDK/native checks; paired glass-side reconnect and hardware pending |
 
 `Simulator validated` and `emulator validated` do not mean tested on physical
 glasses. Hardware support will be claimed only after repeatable device testing.
