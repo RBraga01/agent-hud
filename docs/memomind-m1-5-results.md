@@ -354,6 +354,7 @@ cannot prove that the armed old session handled a disconnect event. This
 probe confirms safe reconstruction after a package restart and a fresh
 cancel-without-send path; it does **not** close the paired glass-side
 reconnect gate. Desktop Studio exposes no documented connection toggle for
-that paired GMP test. M2 therefore remains `IN PROGRESS`, and PR #8 remains
-draft until a supported disconnect/reconnect stimulus (or physical-device
-evidence) proves the full path.
+that paired GMP test. M2 therefore remains `IN PROGRESS`. PR #8 was merged
+on 2026-10-26 with MemoMind explicitly marked experimental; the missing
+reconnect and physical-device evidence are tracked in
+[issue #10](https://github.com/RBraga01/agent-hud/issues/10).

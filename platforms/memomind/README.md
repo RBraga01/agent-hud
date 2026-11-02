@@ -263,6 +263,10 @@ Paired reconnect and physical-glasses validation are tracked in
 [issue #10](https://github.com/RBraga01/agent-hud/issues/10). The experimental
 port can be published without claiming either gate has passed.
 
+The [physical validation runbook](../../docs/memomind-physical-validation.md)
+records the App Workspace prerequisites, installation sequence, safety cases
+and evidence required when an authorized account and a device are available.
+
 The exact M1.5 simulator trace and measurements are recorded in
 [`../../docs/memomind-m1-5-results.md`](../../docs/memomind-m1-5-results.md).
 The execution placement and restart policy are frozen in
