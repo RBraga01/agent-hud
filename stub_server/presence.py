@@ -39,18 +39,21 @@ class PresenceMonitor:
             self.absence_started_at = None
             self.failed_observations = 0
             self.last_failure_at = None
-        elif self.last_verified_at is not None and at > self.last_verified_at:
-            if self.last_failure_at is None or at > self.last_failure_at:
-                if (
-                    self.last_failure_at is not None
-                    and at > self.last_failure_at + NEGATIVE_EVIDENCE_LEASE_SECONDS
-                ):
-                    self.absence_started_at = None
-                    self.failed_observations = 0
-                if self.absence_started_at is None:
-                    self.absence_started_at = at
-                self.failed_observations += 1
-                self.last_failure_at = at
+        elif (
+            self.last_verified_at is not None
+            and at > self.last_verified_at
+            and (self.last_failure_at is None or at > self.last_failure_at)
+        ):
+            if (
+                self.last_failure_at is not None
+                and at > self.last_failure_at + NEGATIVE_EVIDENCE_LEASE_SECONDS
+            ):
+                self.absence_started_at = None
+                self.failed_observations = 0
+            if self.absence_started_at is None:
+                self.absence_started_at = at
+            self.failed_observations += 1
+            self.last_failure_at = at
 
     def state(self, device_id: str, *, at: float) -> dict:
         """Describe existing proof without performing or scheduling a check."""
