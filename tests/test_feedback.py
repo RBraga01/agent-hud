@@ -37,13 +37,22 @@ def _serve(handler_class):
     return f"http://127.0.0.1:{server.server_address[1]}", server, thread
 
 
+def _read_request(handler: BaseHTTPRequestHandler) -> bytes:
+    """Take the whole request before answering it.
+
+    A server that answers and closes with the request body still unread makes
+    Windows reset the connection. The client can then see the reset instead of
+    the answer, and a test about the answer fails for a reason of its own.
+    """
+    return handler.rfile.read(int(handler.headers.get("Content-Length", 0)))
+
+
 def _answering(status: int, body: dict | None = None, capture: list | None = None):
     """A server that answers every POST the same way."""
 
     class Fixed(BaseHTTPRequestHandler):
         def do_POST(self):
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length)
+            raw = _read_request(self)
             if capture is not None:
                 capture.append((self.path, json.loads(raw.decode())))
             payload = json.dumps(body or {}).encode()
@@ -205,6 +214,7 @@ def test_nothing_listening_is_unreachable():
 def test_an_unreadable_answer_is_still_a_clear_outcome():
     class Garbage(BaseHTTPRequestHandler):
         def do_POST(self):
+            _read_request(self)
             body = b"<html>not json</html>"
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
@@ -273,6 +283,7 @@ def test_an_oversized_answer_is_refused_rather_than_read():
 
     class Huge(BaseHTTPRequestHandler):
         def do_POST(self):
+            _read_request(self)
             self.send_response(200)
             self.send_header("Content-Length", str(len(big)))
             self.end_headers()
